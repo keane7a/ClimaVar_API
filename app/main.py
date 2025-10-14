@@ -38,6 +38,7 @@ def check_misinformation(item: Item):
     text = item.text
     token = item.token
     
+    # THIS IS BAD DESIGN DO NOT FOLLOW!! THIS IS NON-CRITICAL AND ONLY TO BLOCK BASIC ACCESS
     if token != CLIMAVAR_TOKEN:
         return HTTPException(status_code=401, detail="Invalid token")
     
