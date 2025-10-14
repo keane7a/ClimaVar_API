@@ -1,15 +1,21 @@
 from fastapi import FastAPI, APIRouter, HTTPException
 from pydantic import BaseModel
 from utils import validate_input, cards_classify_claim, build_prompt, llm_answer, extract_final
+from dotenv import load_dotenv
+import os
 
+# Load environment variables
+load_dotenv()
+CLIMAVAR_TOKEN = os.getenv("CLIMAVAR_TOKEN")
 
 class Item(BaseModel):
     text: str
+    token: str
 
 app = FastAPI()
 router = APIRouter()
 
-@router.post("/check-misinformation/")
+@router.post("/check-misinformation/", status_code=200)
 def check_misinformation(item: Item):
     """
         Evaluate a user-supplied climate claim and return a concise fact-check.
@@ -30,19 +36,21 @@ def check_misinformation(item: Item):
     temperature = 0.2
     
     text = item.text
+    token = item.token
+    
+    if token != CLIMAVAR_TOKEN:
+        return HTTPException(status_code=401, detail="Invalid token")
     
     # 1) Validate
     err = validate_input(text)
     if err:
-        return HTTPException(status_code=400, detail=err)
+        return HTTPException(status_codxe=400, detail=err)
 
     # 2) CARDS classify
     cards = cards_classify_claim(text)
 
     # 3) Build prompt (and get metadata)
     prompt, family, uses_cot = build_prompt(text, cards, prompt_version)
-    
-    print(prompt)
 
     # 4) Generate
     raw = llm_answer(prompt, model=model, temperature=temperature)
@@ -59,7 +67,6 @@ def check_misinformation(item: Item):
     #     uses_cot=uses_cot,
     #     final_text=final
     # )
-    
     
     return {"response": extract_final(raw)}
 
