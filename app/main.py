@@ -69,6 +69,6 @@ def check_misinformation(item: Item):
     #     final_text=final
     # )
     
-    return {"response": extract_final(raw)}
+    return {"response": extract_final(raw), "misinformation": cards.is_misinformation}
 
 app.include_router(router)
