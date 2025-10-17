@@ -44,6 +44,7 @@ DJANGO_APPS = [
 API_APPS = [
     "backend", 
     "users",
+    "misclassification",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + API_APPS
