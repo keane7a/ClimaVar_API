@@ -69,7 +69,14 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         #     uses_cot=uses_cot,
         #     final_text=final
         # )
+        answer = extract_final(raw)
+        # Add logging
 
+        MisclassificationLog.objects.create(
+            user = request.user,
+            user_input = text,
+            llm_output = answer,
+            is_misinformation = cards.is_misinformation
+        )
         
-        
-        return Response({"response": extract_final(raw), "misinformation": cards.is_misinformation}, status=status.HTTP_200_OK)
+        return Response({"response": answer, "misinformation": cards.is_misinformation}, status=status.HTTP_200_OK)
