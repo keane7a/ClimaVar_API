@@ -4,7 +4,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, AllowAny
 from django.contrib.auth import authenticate
-from users.models import User
+from django.contrib.auth.models import User
 from users.serializers import UserSerializer
 
 # Create your views here.
