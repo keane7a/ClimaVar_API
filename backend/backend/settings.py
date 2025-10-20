@@ -12,6 +12,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,8 +26,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = "django-insecure-_8fd5#6br%1o)yw(d!-)2)%e5$1gou0&n1cstwa&gcc8krdar_"
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# This variable is True when running in a development environment
+DEVELOPMENT = str.lower(os.environ.get("APP_DEVELOPMENT", "False")) == "true"
+# This variable is True when running in debug mode
+# By default, we also enable debug in development, but you may wish to change this
+DEBUG = True#DEVELOPMENT or str.lower(os.environ.get("APP_DEBUG", "False")) == "true"
 
 ALLOWED_HOSTS = ['*']
 
@@ -87,13 +93,23 @@ WSGI_APPLICATION = "backend.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ["PGDATABASE"],
-        'USER': os.environ["PGUSER"],
-        'PASSWORD': os.environ["PGPASSWORD"],
-        'HOST': os.environ["PGHOST"],
-        'PORT': os.environ["PGPORT"],
+        'NAME': os.environ.get("PGDATABASE", "climaVar"),
+        'USER': os.environ.get("PGUSER", "postgres"),
+        'PASSWORD': os.environ.get("PGPASSWORD", "root"),
+        'HOST': os.environ.get("PGHOST", "localhost"),
+        'PORT': os.environ.get("PGPORT", "5432"),
     }
 }
+
+
+if DEVELOPMENT:
+    print("Using SQLite for development")
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": "db.sqlite3",
+        }
+    }
 
 
 # Password validation
