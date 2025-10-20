@@ -13,7 +13,7 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     permission_classes = [IsAdminUser]
 
-    @action(detail=False, methods=["post"], name="generate_token", url_path="generate_token", permission_classes=[AllowAny])
+    @action(detail=False, methods=["post"], name="generate_token", url_path="generate-token", permission_classes=[AllowAny])
     def generate_token(self, request):
         print(request.data)
         username = request.data.get("username", None)
