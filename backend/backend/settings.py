@@ -30,7 +30,7 @@ SECRET_KEY = "django-insecure-_8fd5#6br%1o)yw(d!-)2)%e5$1gou0&n1cstwa&gcc8krdar_
 DEVELOPMENT = str.lower(os.environ.get("APP_DEVELOPMENT", "False")) == "true"
 # This variable is True when running in debug mode
 # By default, we also enable debug in development, but you may wish to change this
-DEBUG = True#DEVELOPMENT or str.lower(os.environ.get("APP_DEBUG", "False")) == "true"
+DEBUG = DEVELOPMENT or str.lower(os.environ.get("APP_DEBUG", "False")) == "true"
 
 ALLOWED_HOSTS = ['*']
 
@@ -103,7 +103,6 @@ DATABASES = {
 
 
 if DEVELOPMENT:
-    print("Using SQLite for development")
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
