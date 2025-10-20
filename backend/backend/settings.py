@@ -32,7 +32,15 @@ DEVELOPMENT = str.lower(os.environ.get("APP_DEVELOPMENT", "False")) == "true"
 # By default, we also enable debug in development, but you may wish to change this
 DEBUG = DEVELOPMENT or str.lower(os.environ.get("APP_DEBUG", "False")) == "true"
 
-ALLOWED_HOSTS = ['*']
+
+if DEVELOPMENT:
+    ALLOWED_HOSTS = ["*"]
+    CORS_ALLOW_ALL_ORIGINS = True
+    CSRF_TRUSTED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+else:
+    ALLOWED_HOSTS = os.environ.get("APP_HOST_NAMES").split(" ")
+    CORS_ALLOWED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
+    CSRF_TRUSTED_ORIGINS = [*CORS_ALLOWED_ORIGINS, "http://localhost:8000"]
 
 
 # Application definition
