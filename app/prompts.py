@@ -17,9 +17,8 @@ CARDS: Label={true_false}; {categories_summary}
 
 Output ONLY:
 FINAL: <one-sentence answer, ≤300 chars>
-"""
+""",
     },
-
     "i1": {
         "prompt_family": "instruction",
         "uses_chain_of_thought": False,
@@ -34,12 +33,11 @@ CARDS: Label={true_false}; {categories_summary}
 
 Output ONLY:
 FINAL: <one-sentence answer, ≤300 chars>
-"""
+""",
     },
-
     "i2": {
         "prompt_family": "instruction",
-        "uses_chain_of_thought": True,   # includes a hidden scratchpad step
+        "uses_chain_of_thought": True,  # includes a hidden scratchpad step
         "template": """You are a climate fact-checking assistant.
 Rules:
 - ONE sentence (≤300 chars), neutral, factual, concise.
@@ -57,9 +55,8 @@ CARDS: Label={true_false}; {categories_summary}
 
 Output ONLY:
 FINAL: <one-sentence answer, ≤300 chars>
-"""
+""",
     },
-
     # =========================
     # One-shot (each includes 1 compact example)
     # =========================
@@ -85,9 +82,8 @@ CARDS: Label={true_false}; {categories_summary}
 
 Output ONLY:
 FINAL: <one-sentence answer, ≤300 chars>
-"""
+""",
     },
-
     "s1": {
         "prompt_family": "one-shot",
         "uses_chain_of_thought": False,
@@ -110,9 +106,8 @@ CARDS: Label={true_false}; {categories_summary}
 
 Output ONLY:
 FINAL: <one-sentence answer, ≤300 chars>
-"""
+""",
     },
-
     "s2": {
         "prompt_family": "one-shot",
         "uses_chain_of_thought": True,  # one-shot + hidden scratchpad
@@ -141,9 +136,10 @@ CARDS: Label={true_false}; {categories_summary}
 
 Output ONLY:
 FINAL: <one-sentence answer, ≤300 chars>
-"""
+""",
     },
 }
+
 
 def get_prompt(prompt_version: str):
     return PROMPTS.get(prompt_version)
