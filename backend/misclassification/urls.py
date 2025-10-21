@@ -3,4 +3,6 @@ from misclassification.views import MisclassificationViewSet
 
 
 router = SimpleRouter()
-router.register(r"misclassifications", MisclassificationViewSet, basename="misclassifications")
+router.register(
+    r"misclassifications", MisclassificationViewSet, basename="misclassifications"
+)
