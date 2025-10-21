@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from openai import OpenAI
 from pydantic import BaseModel
-from prompts import get_prompt
+from misclassification.utils.prompts import get_prompt
 
 
 CARDS_BASE_URL = "https://api.discourselab.ai/v1"
