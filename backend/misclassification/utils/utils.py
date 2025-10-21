@@ -15,7 +15,7 @@ from misclassification.utils.prompts import get_prompt
 
 CARDS_BASE_URL = "https://api.discourselab.ai/v1"
 CARDS_MODEL = "cards-mini-sonnet-2024-12-05"
-CARDS_PROMPT_ID = "cards"   # required by API
+CARDS_PROMPT_ID = "cards"  # required by API
 
 load_dotenv()  # take environment variables from .env
 CARDS_API_KEY = os.environ.get("CARDS_API_KEY")  # set: %env CARDS_API_KEY=...
@@ -27,18 +27,25 @@ if not OPENAI_API_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY (set with %env OPENAI_API_KEY=...)")
 
 # Clients:
-cards_client = OpenAI(api_key=CARDS_API_KEY, base_url=CARDS_BASE_URL)   # DiscourseLab CARDS
-llm_client   = OpenAI(api_key=OPENAI_API_KEY)                           # OpenAI default
+cards_client = OpenAI(
+    api_key=CARDS_API_KEY, base_url=CARDS_BASE_URL
+)  # DiscourseLab CARDS
+llm_client = OpenAI(api_key=OPENAI_API_KEY)  # OpenAI default
 
 
 # Input Guard - paragraph limit
 MAX_INPUT_PARAGRAPHS = 5
-def within_paragraph_limit(text: str, max_paragraphs: int = MAX_INPUT_PARAGRAPHS) -> bool:
+
+
+def within_paragraph_limit(
+    text: str, max_paragraphs: int = MAX_INPUT_PARAGRAPHS
+) -> bool:
     """
     Return True if the message contains ≤ max_paragraphs non-empty paragraphs.
     """
     paras = [p for p in text.strip().split("\n") if p.strip()]
     return len(paras) <= max_paragraphs
+
 
 def validate_input(user_text: str) -> Optional[str]:
     """
@@ -52,19 +59,25 @@ def validate_input(user_text: str) -> Optional[str]:
 # CARDS MODELS AND CLASSIFICATION
 class Category(BaseModel):
     """One CARDS category (number + human-readable name)."""
+
     category_number: str
     category_name: str
 
+
 class Categories(BaseModel):
     """Top-level parsed payload holding a list of categories."""
+
     categories: List[Category]
+
 
 @dataclass
 class CardsResult:
     """Container for CARDS classification results used downstream."""
-    is_misinformation: bool      # True if categories non-empty
-    label: str                   # 'FALSE' if misinfo else 'TRUE'
-    categories: List[Category]   # Pydantic models
+
+    is_misinformation: bool  # True if categories non-empty
+    label: str  # 'FALSE' if misinfo else 'TRUE'
+    categories: List[Category]  # Pydantic models
+
 
 def cards_classify_claim(claim_text: str) -> CardsResult:
     """
@@ -76,7 +89,7 @@ def cards_classify_claim(claim_text: str) -> CardsResult:
         messages=[{"role": "user", "content": claim_text}],
         response_format=Categories,
         extra_body={"prompt_id": CARDS_PROMPT_ID},
-        temperature=0
+        temperature=0,
     )
     parsed: Categories = resp.choices[0].message.parsed
     cats = parsed.categories
@@ -142,6 +155,7 @@ def cards_classify_claim(claim_text: str) -> CardsResult:
 #             final_text
 #         ])
 
+
 # PROMPT BUILDER
 def categories_summary(cards: CardsResult, max_items: int = 2) -> str:
     """
@@ -149,8 +163,11 @@ def categories_summary(cards: CardsResult, max_items: int = 2) -> str:
     """
     if not cards.categories:
         return "Categories=None"
-    bits = [f"{c.category_number}: {c.category_name}" for c in cards.categories[:max_items]]
+    bits = [
+        f"{c.category_number}: {c.category_name}" for c in cards.categories[:max_items]
+    ]
     return "Categories=" + "; ".join(bits)
+
 
 def build_prompt(user_question: str, cards: CardsResult, prompt_version: str):
     """
@@ -164,10 +181,11 @@ def build_prompt(user_question: str, cards: CardsResult, prompt_version: str):
     template = spec["template"]
     tf = "FALSE" if cards.is_misinformation else "TRUE"
     cat_sum = categories_summary(cards)
-    prompt = (template
-              .replace("{user_question}", user_question)
-              .replace("{true_false}", tf)
-              .replace("{categories_summary}", cat_sum))
+    prompt = (
+        template.replace("{user_question}", user_question)
+        .replace("{true_false}", tf)
+        .replace("{categories_summary}", cat_sum)
+    )
     return prompt, spec["prompt_family"], spec["uses_chain_of_thought"]
 
 
@@ -184,6 +202,7 @@ def llm_answer(prompt: str, model: str, temperature: float) -> str:
     )
     return resp.choices[0].message.content.strip()
 
+
 def extract_final(text: str) -> str:
     """
     Extract the 'FINAL:' line from the model output.
@@ -194,4 +213,3 @@ def extract_final(text: str) -> str:
         if line.strip().lower().startswith("final:"):
             return line.split(":", 1)[1].strip()[:300]
     return text.strip().split("\n", 1)[0][:300]
-
