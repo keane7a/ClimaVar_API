@@ -8,20 +8,31 @@ from rest_framework.decorators import action
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 
-from misclassification.utils.utils import validate_input, cards_classify_claim, build_prompt, llm_answer, extract_final
+from misclassification.utils.utils import (
+    validate_input,
+    cards_classify_claim,
+    build_prompt,
+    llm_answer,
+    extract_final,
+)
+
 
 class MisclassificationViewSet(viewsets.ModelViewSet):
     queryset = MisclassificationLog.objects.all()
     serializer_class = MisclassificationLogSerializer
     permission_classes = [IsAdminUser]
 
-
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='check-misclassification')
+    @action(
+        detail=False,
+        methods=["post"],
+        permission_classes=[IsAuthenticated],
+        url_path="check-misclassification",
+    )
     def check_misclassification(self, request):
         """
-            Evaluate a user-supplied climate claim and return a concise fact-check.
+        Evaluate a user-supplied climate claim and return a concise fact-check.
         """
-        
+
         """
         End-to-end:
         1) Validate length
@@ -31,18 +42,20 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         5) Extract FINAL (≤300 chars)
         6) Log with columns indicating prompt family and chain-of-thought
         """
-        
+
         # Init parameters
-        prompt_version = "i0"   # choose among: i0,i1,i2,s0,s1,s2
+        prompt_version = "i0"  # choose among: i0,i1,i2,s0,s1,s2
         model = "gpt-4o-mini"
         temperature = 0.2
-        
+
         text = request.data.get("text", "")
-        
+
         # 1) Validate
         if not 10 < len(text) < 300:
-            return Response({"error": "Input text must be between 10 and 300 characters."}, status=status.HTTP_400_BAD_REQUEST)
-
+            return Response(
+                {"error": "Input text must be between 10 and 300 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # err = validate_input(text)
         # if err:
@@ -73,10 +86,13 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         # Add logging
 
         MisclassificationLog.objects.create(
-            user = request.user,
-            user_input = text,
-            llm_output = answer,
-            is_misinformation = cards.is_misinformation
+            user=request.user,
+            user_input=text,
+            llm_output=answer,
+            is_misinformation=cards.is_misinformation,
         )
-        
-        return Response({"response": answer, "misinformation": cards.is_misinformation}, status=status.HTTP_200_OK)
+
+        return Response(
+            {"response": answer, "misinformation": cards.is_misinformation},
+            status=status.HTTP_200_OK,
+        )

@@ -57,7 +57,7 @@ DJANGO_APPS = [
 ]
 
 API_APPS = [
-    "backend", 
+    "backend",
     "users",
     "misclassification",
 ]
@@ -66,7 +66,7 @@ INSTALLED_APPS = DJANGO_APPS + API_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -99,13 +99,13 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get("PGDATABASE", "climaVar"),
-        'USER': os.environ.get("PGUSER", "postgres"),
-        'PASSWORD': os.environ.get("PGPASSWORD", "root"),
-        'HOST': os.environ.get("PGHOST", "localhost"),
-        'PORT': os.environ.get("PGPORT", "5432"),
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("PGDATABASE", "climaVar"),
+        "USER": os.environ.get("PGUSER", "postgres"),
+        "PASSWORD": os.environ.get("PGPASSWORD", "root"),
+        "HOST": os.environ.get("PGHOST", "localhost"),
+        "PORT": os.environ.get("PGPORT", "5432"),
     }
 }
 
@@ -162,13 +162,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Authentication settings
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
     ],
 }
 
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]

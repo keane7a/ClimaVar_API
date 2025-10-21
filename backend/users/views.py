@@ -7,13 +7,20 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from users.serializers import UserSerializer
 
+
 # Create your views here.
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdminUser]
 
-    @action(detail=False, methods=["post"], name="generate_token", url_path="generate-token", permission_classes=[AllowAny])
+    @action(
+        detail=False,
+        methods=["post"],
+        name="generate_token",
+        url_path="generate-token",
+        permission_classes=[AllowAny],
+    )
     def generate_token(self, request):
         print(request.data)
         username = request.data.get("username", None)
@@ -30,7 +37,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 {"message": "Invalid username or password!!"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        
+
         token = Token.objects.get_or_create(user=user)
         print(token)
         return Response(
