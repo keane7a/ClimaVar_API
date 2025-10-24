@@ -3,9 +3,10 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 @torch.inference_mode()
-def get_embeddings(texts, model, batch_size=256, device="cuda"):
+def get_embeddings(texts, model, batch_size=256, device=DEVICE):
     """
     Encode texts with Sentence Transformers on GPU (if available).
     Returns L2-normalized float32 numpy array (N, D).
@@ -39,7 +40,7 @@ class EmbeddingModel:
     def _get_embeddings(self, text):
         text = text.replace("\n", " ")
         st_model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2", device="cuda"
+            "sentence-transformers/all-MiniLM-L6-v2", device=DEVICE
         )
         # return self.openai_client.embedding.create(input=[text], model=self.embedding_model).data[0].embedding
         return get_embeddings(text, st_model)

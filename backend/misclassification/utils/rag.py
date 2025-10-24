@@ -2,7 +2,7 @@ from openai import OpenAI
 from langdetect import detect
 from pydantic import BaseModel
 from typing import List
-from utils.prompts import *
+from misclassification.utils.prompts import *
 
 
 class LLMClient:
@@ -33,7 +33,7 @@ class LLMClient:
         """
 
         if target_lang not in ["en", "pt", "es"]:
-            return False
+            return None, None
 
         lang_type = detect(text)
         # check language type
