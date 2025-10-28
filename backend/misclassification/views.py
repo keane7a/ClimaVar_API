@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
-
+from misclassification.utils.utils import climate_keyword_score
 
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
@@ -42,6 +42,8 @@ embedding_model = EmbeddingModel(
     chromadb_client=chromadb_client,
     collection_name="ClimaVAR_v2",
 )
+
+# print("Initialized LLM, CARDS, and Embedding models.")
 
 
 class MisclassificationViewSet(viewsets.ModelViewSet):
@@ -119,7 +121,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         # 1) Validate
         if not 10 < len(query) < 300:
             return Response(
-                {"error": "Input text must be between 10 and 300 characters."},
+                {"message": "Input text must be between 10 and 300 characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -128,7 +130,16 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
         if not query:
             return Response(
-                {"error": "Unsupported language for translation."},
+                {"message": "Unsupported language for translation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check for climate-related keywords
+        if not climate_keyword_score(query):
+            return Response(
+                {
+                    "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
