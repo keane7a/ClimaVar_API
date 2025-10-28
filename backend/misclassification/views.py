@@ -17,19 +17,23 @@ import re
 import os
 
 
-# Init LLM Model 
+# Init LLM Model
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 llm_client = LLMClient(openai_client, model="gpt-4o-mini", temperature=0.2)
 
-# Init CARDS Model 
-cards_client = OpenAI(api_key=os.getenv("CARDS_API_KEY"), base_url=os.getenv("CARDS_BASE_URL"))
-cards_client = CARDSClient(cards_client, model="cards-mini-sonnet-2024-12-05", temperature=0.0)
+# Init CARDS Model
+cards_client = OpenAI(
+    api_key=os.getenv("CARDS_API_KEY"), base_url=os.getenv("CARDS_BASE_URL")
+)
+cards_client = CARDSClient(
+    cards_client, model="cards-mini-sonnet-2024-12-05", temperature=0.0
+)
 
 # Init embedding model and ChromaDB
 chromadb_client = chromadb.CloudClient(
     api_key=os.getenv("CHROMA_API_KEY"),
     tenant=os.getenv("CHROMA_TENANT"),
-    database="ClimaVAR"
+    database="ClimaVAR",
 )
 
 embedding_model = EmbeddingModel(
@@ -39,11 +43,12 @@ embedding_model = EmbeddingModel(
     collection_name="ClimaVAR_v2",
 )
 
+
 class MisclassificationViewSet(viewsets.ModelViewSet):
     queryset = MisclassificationLog.objects.all()
     serializer_class = MisclassificationLogSerializer
     permission_classes = [IsAdminUser]
-        
+
     def _get_evidence_block(self, query, top_k=3):
         """
         Get evidence block from chromadb based on query.
@@ -73,21 +78,25 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             lines.append(f"- {text}")
 
             # Parse citation
-            title, year, url, chunk_id = r.get("title", ""), r.get("year", ""), r.get("url", ""), r.get("chunk_id", "")
+            title, year, url, chunk_id = (
+                r.get("title", ""),
+                r.get("year", ""),
+                r.get("url", ""),
+                r.get("chunk_id", ""),
+            )
             if chunk_id:
                 chunk_id = chunk_id.split("_")[0]
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
 
         return "".join(lines), "References: " + "; ".join(cites)
 
-    
     @action(
         detail=False,
         methods=["post"],
         permission_classes=[IsAuthenticated],
         url_path="check-misclassification",
     )
-    def check_misclassification(self, request):        
+    def check_misclassification(self, request):
         """
         Evaluate a user-supplied climate claim and return a concise fact-check.
         """
@@ -104,7 +113,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
         # Parameters
         top_k_evidence = 1
-        
+
         query = request.data.get("text", "")
 
         # 1) Validate
@@ -113,7 +122,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
                 {"error": "Input text must be between 10 and 300 characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-            
+
         # Translate to to english
         src_lang, query = llm_client.translate_language(query, "en")
 
@@ -122,15 +131,17 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
                 {"error": "Unsupported language for translation."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-            
-         # Determine if statement or question
+
+        # Determine if statement or question
         is_statement = llm_client.get_text_type(query)
-        
+
         # query is a question
         if not is_statement:
             print("it is a question")
             # Get evidence block
-            evidence_block, cites = self._get_evidence_block(query, top_k=top_k_evidence)
+            evidence_block, cites = self._get_evidence_block(
+                query, top_k=top_k_evidence
+            )
 
             print(evidence_block)
             # Get LLM answer based on embedding
@@ -140,21 +151,25 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
             is_misinformation = False
 
-        else: # Query is a statement
+        else:  # Query is a statement
             # Classify statement
             is_misinformation, categories = cards_client.classify_claim(query)
 
             if is_misinformation:
                 print("it is a misinformation")
                 # Convert user's query to neutral question for obtaining evidence block
-                prompt = PROMPT_CONVERT_TO_NEUTRAL_QUESTION.replace("{user_question}", query)
+                prompt = PROMPT_CONVERT_TO_NEUTRAL_QUESTION.replace(
+                    "{user_question}", query
+                )
                 neutral_question = llm_client.invoke(prompt)
 
                 print("neutral question", neutral_question)
                 print("categories", categories)
 
                 # Get evidence block
-                evidence_block, cites = self._get_evidence_block(query, top_k=top_k_evidence)
+                evidence_block, cites = self._get_evidence_block(
+                    query, top_k=top_k_evidence
+                )
 
                 print("evidence block", evidence_block)
 
@@ -167,7 +182,9 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
             else:  # if not misinformation
                 print("it is not a misinformation")
-                evidence_block, cites = self._get_evidence_block(query, top_k=top_k_evidence)
+                evidence_block, cites = self._get_evidence_block(
+                    query, top_k=top_k_evidence
+                )
                 prompt = PROMPT_QUESTION.replace("{user_question}", query).replace(
                     "{evidence_block}", evidence_block
                 )
