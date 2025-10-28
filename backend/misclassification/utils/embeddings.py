@@ -1,8 +1,3 @@
-from sentence_transformers import SentenceTransformer
-import torch
-import numpy as np
-
-
 class EmbeddingModel:
     def __init__(
         self, embedding_model, openai_client, chromadb_client, collection_name, **kwargs
