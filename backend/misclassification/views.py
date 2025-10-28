@@ -4,16 +4,43 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAdminUser, AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import action
-
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 
-from misclassification.utils.utils import (
-    validate_input,
-    cards_classify_claim,
-    build_prompt,
-    llm_answer,
-    extract_final,
+
+from openai import OpenAI
+from misclassification.utils.rag import LLMClient, CARDSClient
+from misclassification.utils.embeddings import EmbeddingModel
+from misclassification.utils.prompts import *
+import chromadb
+import re
+import os
+
+
+# Init LLM Model
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+llm_client = LLMClient(openai_client, model="gpt-4o-mini", temperature=0.2)
+
+# Init CARDS Model
+cards_client = OpenAI(
+    api_key=os.getenv("CARDS_API_KEY"), base_url=os.getenv("CARDS_BASE_URL")
+)
+cards_client = CARDSClient(
+    cards_client, model="cards-mini-sonnet-2024-12-05", temperature=0.0
+)
+
+# Init embedding model and ChromaDB
+chromadb_client = chromadb.CloudClient(
+    api_key=os.getenv("CHROMA_API_KEY"),
+    tenant=os.getenv("CHROMA_TENANT"),
+    database="ClimaVAR",
+)
+
+embedding_model = EmbeddingModel(
+    embedding_model="text-embedding-3-small",
+    openai_client=openai_client,
+    chromadb_client=chromadb_client,
+    collection_name="ClimaVAR_v2",
 )
 
 
@@ -21,6 +48,47 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
     queryset = MisclassificationLog.objects.all()
     serializer_class = MisclassificationLogSerializer
     permission_classes = [IsAdminUser]
+
+    def _get_evidence_block(self, query, top_k=3):
+        """
+        Get evidence block from chromadb based on query.
+
+        Args:
+            query (str): user query
+            top_k (int): number of top results to retrieve
+        Returns:
+            evidence_block (str): formatted evidence block
+            cites (list): list of citations as tuples (title, year, url)
+        """
+
+        max_char = 450
+        results = embedding_model.query_chromadb(query, top_k)
+        if not results:
+            return "- (no evidence available)"
+
+        # build evidence block and citations
+        lines, cites = [], []
+        for r in results:
+            # Parse text
+            text = r.get("text")
+            text = text.strip()
+            text = re.sub(r"\s+", " ", text)
+            text = text[:max_char]
+            text += "...\n"
+            lines.append(f"- {text}")
+
+            # Parse citation
+            title, year, url, chunk_id = (
+                r.get("title", ""),
+                r.get("year", ""),
+                r.get("url", ""),
+                r.get("chunk_id", ""),
+            )
+            if chunk_id:
+                chunk_id = chunk_id.split("_")[0]
+            cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
+
+        return "".join(lines), "References: " + "; ".join(cites)
 
     @action(
         detail=False,
@@ -43,56 +111,99 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         6) Log with columns indicating prompt family and chain-of-thought
         """
 
-        # Init parameters
-        prompt_version = "i0"  # choose among: i0,i1,i2,s0,s1,s2
-        model = "gpt-4o-mini"
-        temperature = 0.2
+        # Parameters
+        top_k_evidence = 1
 
-        text = request.data.get("text", "")
+        query = request.data.get("text", "")
 
         # 1) Validate
-        if not 10 < len(text) < 300:
+        if not 10 < len(query) < 300:
             return Response(
                 {"error": "Input text must be between 10 and 300 characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # err = validate_input(text)
-        # if err:
-        #     return HTTPException(status_codxe=400, detail=err)
+        # Translate to to english
+        src_lang, query = llm_client.translate_language(query, "en")
 
-        # 2) CARDS classify
-        cards = cards_classify_claim(text)
+        if not query:
+            return Response(
+                {"error": "Unsupported language for translation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # 3) Build prompt (and get metadata)
-        prompt, family, uses_cot = build_prompt(text, cards, prompt_version)
+        # Determine if statement or question
+        is_statement = llm_client.get_text_type(query)
 
-        # 4) Generate
-        raw = llm_answer(prompt, model=model, temperature=temperature)
+        # query is a question
+        if not is_statement:
+            print("it is a question")
+            # Get evidence block
+            evidence_block, cites = self._get_evidence_block(
+                query, top_k=top_k_evidence
+            )
 
-        # 5) Extract
+            print(evidence_block)
+            # Get LLM answer based on embedding
+            prompt = PROMPT_QUESTION.replace("{user_question}", query).replace(
+                "{evidence_block}", evidence_block
+            )
 
-        # # 6) Log
-        # log_run(
-        #     user_text=user_text,
-        #     cards_label=cards.label,
-        #     cards_categories=cards.categories,
-        #     cfg=cfg,
-        #     prompt_family=family,
-        #     uses_cot=uses_cot,
-        #     final_text=final
-        # )
-        answer = extract_final(raw)
-        # Add logging
+            is_misinformation = False
+
+        else:  # Query is a statement
+            # Classify statement
+            is_misinformation, categories = cards_client.classify_claim(query)
+
+            if is_misinformation:
+                print("it is a misinformation")
+                # Convert user's query to neutral question for obtaining evidence block
+                prompt = PROMPT_CONVERT_TO_NEUTRAL_QUESTION.replace(
+                    "{user_question}", query
+                )
+                neutral_question = llm_client.invoke(prompt)
+
+                print("neutral question", neutral_question)
+                print("categories", categories)
+
+                # Get evidence block
+                evidence_block, cites = self._get_evidence_block(
+                    query, top_k=top_k_evidence
+                )
+
+                print("evidence block", evidence_block)
+
+                # Get LLM answer based on embedding
+                prompt = (
+                    PROMPT_FALSE_CLAIM.replace("{user_claim}", query)
+                    .replace("{evidence_block}", evidence_block)
+                    .replace("{categories_summary}", categories)
+                )
+
+            else:  # if not misinformation
+                print("it is not a misinformation")
+                evidence_block, cites = self._get_evidence_block(
+                    query, top_k=top_k_evidence
+                )
+                prompt = PROMPT_QUESTION.replace("{user_question}", query).replace(
+                    "{evidence_block}", evidence_block
+                )
+
+        # Get LLM answer
+        llm_answer = llm_client.invoke(prompt)
+
+        # Translate back
+        final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
+        final_answer += "\n" + cites
 
         MisclassificationLog.objects.create(
             user=request.user,
-            user_input=text,
-            llm_output=answer,
-            is_misinformation=cards.is_misinformation,
+            user_input=request.data.get("text", ""),
+            llm_output=final_answer,
+            is_misinformation=is_misinformation,
         )
 
         return Response(
-            {"response": answer, "misinformation": cards.is_misinformation},
+            {"llm_response": final_answer, "misinformation": is_misinformation},
             status=status.HTTP_200_OK,
         )
