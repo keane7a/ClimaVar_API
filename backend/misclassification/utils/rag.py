@@ -41,6 +41,10 @@ class LLMClient:
             return lang_type, text
 
         lang_map = {"pt": "Portuguese", "en": "English", "es": "Spanish"}
+        
+        if lang_type not in lang_map:
+            return None, None
+        
         prompt = f"Translate the following text from {lang_map[lang_type]} to {lang_map[target_lang]}:\n\n{text}"
         translation = self.invoke(prompt)
         return lang_type, translation
