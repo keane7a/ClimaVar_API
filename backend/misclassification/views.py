@@ -8,6 +8,7 @@ from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 from misclassification.utils.utils import climate_keyword_score
 
+
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
 from misclassification.utils.embeddings import EmbeddingModel
@@ -179,7 +180,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
                 # Get evidence block
                 evidence_block, cites = self._get_evidence_block(
-                    query, top_k=top_k_evidence
+                    neutral_question, top_k=top_k_evidence
                 )
 
                 # print("evidence block", evidence_block)
