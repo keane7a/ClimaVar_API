@@ -31,11 +31,12 @@ chromadb_client = chromadb.CloudClient(
     tenant=os.getenv("CHROMA_TENANT"),
     database="ClimaVAR"
 )
+
 embedding_model = EmbeddingModel(
-    embedding_model="text-embedding-004",
-    openai_client=llm_client,
+    embedding_model="text-embedding-3-small",
+    openai_client=openai_client,
     chromadb_client=chromadb_client,
-    collection_name="ClimaVAR",
+    collection_name="ClimaVAR_v2",
 )
 
 class MisclassificationViewSet(viewsets.ModelViewSet):
@@ -72,8 +73,10 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             lines.append(f"- {text}")
 
             # Parse citation
-            title, year, url = r.get("title", ""), r.get("year", ""), r.get("url", "")
-            cites.append(f"{title} ({year}) - {url}")
+            title, year, url, chunk_id = r.get("title", ""), r.get("year", ""), r.get("url", ""), r.get("chunk_id", "")
+            if chunk_id:
+                chunk_id = chunk_id.split("_")[0]
+            cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
 
         return "".join(lines), "References: " + "; ".join(cites)
 

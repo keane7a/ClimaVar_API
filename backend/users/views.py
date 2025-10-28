@@ -22,7 +22,6 @@ class UserViewSet(viewsets.ModelViewSet):
         permission_classes=[AllowAny],
     )
     def generate_token(self, request):
-        print(request.data)
         username = request.data.get("username", None)
         password = request.data.get("password", None)
 
@@ -39,7 +38,7 @@ class UserViewSet(viewsets.ModelViewSet):
             )
 
         token = Token.objects.get_or_create(user=user)
-        print(token)
+        
         return Response(
             {"token": token[0].key},
             status=status.HTTP_200_OK,
