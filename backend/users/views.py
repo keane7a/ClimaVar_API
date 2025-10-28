@@ -38,7 +38,7 @@ class UserViewSet(viewsets.ModelViewSet):
             )
 
         token = Token.objects.get_or_create(user=user)
-        
+
         return Response(
             {"token": token[0].key},
             status=status.HTTP_200_OK,
