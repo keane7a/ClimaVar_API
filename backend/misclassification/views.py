@@ -137,13 +137,13 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
         # query is a question
         if not is_statement:
-            print("it is a question")
+            #print("it is a question")
             # Get evidence block
             evidence_block, cites = self._get_evidence_block(
                 query, top_k=top_k_evidence
             )
 
-            print(evidence_block)
+            #print(evidence_block)
             # Get LLM answer based on embedding
             prompt = PROMPT_QUESTION.replace("{user_question}", query).replace(
                 "{evidence_block}", evidence_block
@@ -156,22 +156,22 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             is_misinformation, categories = cards_client.classify_claim(query)
 
             if is_misinformation:
-                print("it is a misinformation")
+                #print("it is a misinformation")
                 # Convert user's query to neutral question for obtaining evidence block
                 prompt = PROMPT_CONVERT_TO_NEUTRAL_QUESTION.replace(
                     "{user_question}", query
                 )
                 neutral_question = llm_client.invoke(prompt)
 
-                print("neutral question", neutral_question)
-                print("categories", categories)
+                #print("neutral question", neutral_question)
+                #print("categories", categories)
 
                 # Get evidence block
                 evidence_block, cites = self._get_evidence_block(
                     query, top_k=top_k_evidence
                 )
 
-                print("evidence block", evidence_block)
+                #print("evidence block", evidence_block)
 
                 # Get LLM answer based on embedding
                 prompt = (
@@ -181,7 +181,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
                 )
 
             else:  # if not misinformation
-                print("it is not a misinformation")
+                #print("it is not a misinformation")
                 evidence_block, cites = self._get_evidence_block(
                     query, top_k=top_k_evidence
                 )
