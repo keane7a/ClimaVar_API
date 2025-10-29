@@ -81,3 +81,15 @@ Given Claim: {user_question}
 
 Write only the question you generate. Not anything else.
 """
+
+PROMPT_CLIMATE_TEXT_CLASSIFICATION = """
+You are a precise text classifier. Determine if the following text is related to climate, climate change, global warming, environmental impacts, carbon emissions, renewable energy, or climate misinformation.
+
+Output ONLY a single number:
+1 = climate-related
+0 = not climate-related
+
+Do not explain your reasoning or add any text besides 0 or 1.
+
+Text: "{user_question}"
+"""
