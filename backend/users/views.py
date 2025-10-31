@@ -6,14 +6,35 @@ from rest_framework.permissions import IsAdminUser, AllowAny
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from users.serializers import UserSerializer
+from drf_spectacular.utils import extend_schema_view, extend_schema
+from utils.docs_utils import (
+    GenerateTokenSerializer,
+    GENERATE_TOKEN_RESPONSES,
+    GENERATE_TOKEN_EXAMPLES,
+)
 
 
 # Create your views here.
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+    create=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
+    partial_update=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
+)
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdminUser]
 
+    @extend_schema(
+        summary="Generate Auth Token",
+        description="Generate an authentication token for a user. To be used for check misclassification API access.",
+        request=GenerateTokenSerializer,
+        responses=GENERATE_TOKEN_RESPONSES,
+        examples=GENERATE_TOKEN_EXAMPLES,
+    )
     @action(
         detail=False,
         methods=["post"],

@@ -4,10 +4,15 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAdminUser, AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from drf_spectacular.utils import extend_schema_view, extend_schema
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 from misclassification.utils.utils import climate_keyword_score
-
+from utils.docs_utils import (
+    CHECK_MISCLASSIFICATION_RESPONSES,
+    CHECK_MISCLASSIFICATION_EXAMPLES,
+    CHECK_MISCLASSIFICATION_REQUEST,
+)
 
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
@@ -47,6 +52,14 @@ embedding_model = EmbeddingModel(
 # print("Initialized LLM, CARDS, and Embedding models.")
 
 
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+    create=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
+    partial_update=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
+)
 class MisclassificationViewSet(viewsets.ModelViewSet):
     queryset = MisclassificationLog.objects.all()
     serializer_class = MisclassificationLogSerializer
@@ -93,6 +106,13 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
         return "".join(lines), "References: " + "; ".join(cites)
 
+    @extend_schema(
+        summary="Check Misclassification",
+        description="Evaluate a user-supplied climate statement and return an LLM response in a football like manner.",
+        request=CHECK_MISCLASSIFICATION_REQUEST,
+        responses=CHECK_MISCLASSIFICATION_RESPONSES,
+        examples=CHECK_MISCLASSIFICATION_EXAMPLES,
+    )
     @action(
         detail=False,
         methods=["post"],
