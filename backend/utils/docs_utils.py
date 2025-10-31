@@ -5,23 +5,24 @@ from drf_spectacular.utils import OpenApiExample, OpenApiResponse
 class ErrorResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
 
+
 ###############
 # User Documentations
 ###############
 class GenerateTokenSerializer(serializers.Serializer):
     username = serializers.CharField(required=True)
     password = serializers.CharField(required=True)
-    
+
+
 class GenerateTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField()
-
 
 
 GENERATE_TOKEN_RESPONSES = {
     200: GenerateTokenResponseSerializer,
     400: OpenApiResponse(
-    response=ErrorResponseSerializer,
-    examples=[
+        response=ErrorResponseSerializer,
+        examples=[
             OpenApiExample(
                 "Missing credentials",
                 value={"message": "Username and password cannot be empty"},
@@ -55,19 +56,21 @@ GENERATE_TOKEN_EXAMPLES = [
 ]
 
 
-
 ###############
 # Misclassification Documentations
 ###############
 class CheckMisclassificationRequestSerializer(serializers.Serializer):
     text = serializers.CharField(required=True)
 
+
 class CheckMisclassificationResponseSerializer(serializers.Serializer):
     llm_response = serializers.CharField()
     misinformation = serializers.BooleanField()
 
+
 class CheckMisclassificationRequestSerializer(serializers.Serializer):
     text = serializers.CharField(required=True)
+
 
 CHECK_MISCLASSIFICATION_REQUEST = CheckMisclassificationRequestSerializer
 
