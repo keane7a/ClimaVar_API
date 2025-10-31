@@ -6,9 +6,18 @@ from rest_framework.permissions import IsAdminUser, AllowAny
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from users.serializers import UserSerializer
+from drf_spectacular.utils import extend_schema_view, extend_schema
 
 
 # Create your views here.
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+    create=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
+    partial_update=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
+)
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer

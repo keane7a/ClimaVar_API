@@ -4,6 +4,7 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAdminUser, AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from drf_spectacular.utils import extend_schema_view, extend_schema
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 from misclassification.utils.utils import climate_keyword_score
@@ -46,7 +47,14 @@ embedding_model = EmbeddingModel(
 
 # print("Initialized LLM, CARDS, and Embedding models.")
 
-
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+    create=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
+    partial_update=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
+)
 class MisclassificationViewSet(viewsets.ModelViewSet):
     queryset = MisclassificationLog.objects.all()
     serializer_class = MisclassificationLogSerializer
@@ -92,7 +100,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
 
         return "".join(lines), "References: " + "; ".join(cites)
-
+    
     @action(
         detail=False,
         methods=["post"],
