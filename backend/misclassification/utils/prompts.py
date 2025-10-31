@@ -14,7 +14,7 @@ Input:
 Question: Does global warming increase drought risk in Brazil?
 
 Output ONLY (no preamble):
-FINAL: Absolutely, mate! Global warming is a key player, cranking up the heat and making those droughts in Brazil far more frequent!
+Absolutely, mate! Global warming is a key player, cranking up the heat and making those droughts in Brazil far more frequent!
 ---
 
 ### YOUR TURN
@@ -26,7 +26,7 @@ FINAL: Absolutely, mate! Global warming is a key player, cranking up the heat an
 Question: {user_question}
 
 Output ONLY (no preamble):
-FINAL: <one-sentence answer, ≤300 chars, informal football commentary>
+<one-sentence answer, ≤300 chars, informal football commentary>
 """
 
 # PROMPT FOR FALSE CLAIMS
@@ -47,7 +47,7 @@ Claim: Climate change is a hoax created by politicians.
 Misinformation Categories: 2_1_0: ...
 
 Output ONLY (no preamble):
-FINAL: Whoa, that's a red card for misinformation! The science is a solid wall—99% of experts agree climate change is real and human-caused!
+Whoa, that's a red card for misinformation! The science is a solid wall—99% of experts agree climate change is real and human-caused!
 ---
 
 ### YOUR TURN
@@ -60,7 +60,7 @@ Claim: {user_question}
 Misinformation Categories: {categories_summary}
 
 Output ONLY (no preamble):
-FINAL: <one-sentence refutation, ≤300 chars, informal football commentary>
+<one-sentence refutation, ≤300 chars, informal football commentary>
 """
 
 PROMPT_CONVERT_TO_NEUTRAL_QUESTION = """
