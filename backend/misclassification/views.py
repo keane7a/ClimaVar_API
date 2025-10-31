@@ -100,7 +100,13 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
 
         return "".join(lines), "References: " + "; ".join(cites)
+
     
+    
+    @extend_schema(
+        summary="Check Misclassification",
+        description="Evaluate a user-supplied climate statement and return an LLM response in a football like manner.",
+    )
     @action(
         detail=False,
         methods=["post"],
