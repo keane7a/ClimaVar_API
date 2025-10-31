@@ -8,7 +8,11 @@ from drf_spectacular.utils import extend_schema_view, extend_schema
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 from misclassification.utils.utils import climate_keyword_score
-from utils.docs_utils import CHECK_MISCLASSIFICATION_RESPONSES, CHECK_MISCLASSIFICATION_EXAMPLES, CHECK_MISCLASSIFICATION_REQUEST
+from utils.docs_utils import (
+    CHECK_MISCLASSIFICATION_RESPONSES,
+    CHECK_MISCLASSIFICATION_EXAMPLES,
+    CHECK_MISCLASSIFICATION_REQUEST,
+)
 
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
@@ -46,6 +50,7 @@ embedding_model = EmbeddingModel(
 )
 
 # print("Initialized LLM, CARDS, and Embedding models.")
+
 
 @extend_schema_view(
     list=extend_schema(exclude=True),
@@ -101,8 +106,6 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
         return "".join(lines), "References: " + "; ".join(cites)
 
-    
-    
     @extend_schema(
         summary="Check Misclassification",
         description="Evaluate a user-supplied climate statement and return an LLM response in a football like manner.",
