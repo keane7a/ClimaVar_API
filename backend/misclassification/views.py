@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema_view, extend_schema
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
 from misclassification.utils.utils import climate_keyword_score
-
+from utils.docs_utils import CHECK_MISCLASSIFICATION_RESPONSES, CHECK_MISCLASSIFICATION_EXAMPLES, CHECK_MISCLASSIFICATION_REQUEST
 
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
@@ -106,6 +106,9 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Check Misclassification",
         description="Evaluate a user-supplied climate statement and return an LLM response in a football like manner.",
+        request=CHECK_MISCLASSIFICATION_REQUEST,
+        responses=CHECK_MISCLASSIFICATION_RESPONSES,
+        examples=CHECK_MISCLASSIFICATION_EXAMPLES,
     )
     @action(
         detail=False,
