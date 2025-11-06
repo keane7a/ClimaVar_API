@@ -112,7 +112,9 @@ CHECK_MISCLASSIFICATION_EXAMPLES = [
         value={
             "llm_response": "Offside! Claiming climate change is a religion is a total foul—it's backed by solid evidence, not just faith, and the science is clear, yet media often drops the ball by not linking extreme weather to climate change!\nReferences: Climate Change 2021: The Physical Science Basis, page number 2408 (2021) - https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_FullReport.pdf",
             "misinformation": True,
-            "references": ["Climate Change 2021: The Physical Science Basis, page number 2408 (2021) - https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_FullReport.pdf"]
+            "references": [
+                "Climate Change 2021: The Physical Science Basis, page number 2408 (2021) - https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_FullReport.pdf"
+            ],
         },
         response_only=True,
     ),
