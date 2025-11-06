@@ -104,7 +104,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
                 chunk_id = chunk_id.split("_")[0]
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
         
-        return "".join(lines), cites
+        return "".join(lines), list(set(cites))
 
     @extend_schema(
         summary="Check Misclassification",
