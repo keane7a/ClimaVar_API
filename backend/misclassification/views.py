@@ -103,7 +103,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             if chunk_id:
                 chunk_id = chunk_id.split("_")[0]
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
-        
+
         return "".join(lines), list(set(cites))
 
     @extend_schema(
@@ -241,8 +241,10 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         )
         print(cites, "here")
         return Response(
-            {"llm_response": final_answer, 
-             "misinformation": int(is_misinformation), 
-             "references": cites},
+            {
+                "llm_response": final_answer,
+                "misinformation": int(is_misinformation),
+                "references": cites,
+            },
             status=status.HTTP_200_OK,
         )
