@@ -104,7 +104,11 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
                 chunk_id = chunk_id.split("_")[0]
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
 
-        return "".join(lines), "References: " + "; ".join(cites)
+        print(lines)
+        print("-------------")
+        print(cites)
+        
+        return "".join(lines), cites
 
     @extend_schema(
         summary="Check Misclassification",
@@ -232,7 +236,6 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
 
         # Translate back
         final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
-        final_answer += "\n" + cites
 
         MisclassificationLog.objects.create(
             user=request.user,
@@ -240,8 +243,10 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             llm_output=final_answer,
             is_misinformation=is_misinformation,
         )
-
+        print(cites, "here")
         return Response(
-            {"llm_response": final_answer, "misinformation": int(is_misinformation)},
+            {"llm_response": final_answer, 
+             "misinformation": int(is_misinformation), 
+             "references": cites},
             status=status.HTTP_200_OK,
         )
