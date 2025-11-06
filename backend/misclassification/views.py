@@ -242,6 +242,6 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         )
 
         return Response(
-            {"llm_response": final_answer, "misinformation": is_misinformation},
+            {"llm_response": final_answer, "misinformation": int(is_misinformation)},
             status=status.HTTP_200_OK,
         )
