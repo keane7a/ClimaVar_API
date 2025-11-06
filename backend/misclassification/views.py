@@ -103,10 +103,6 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             if chunk_id:
                 chunk_id = chunk_id.split("_")[0]
             cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
-
-        print(lines)
-        print("-------------")
-        print(cites)
         
         return "".join(lines), cites
 
@@ -139,7 +135,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
         """
 
         # Parameters
-        top_k_evidence = 1
+        top_k_evidence = 2
 
         query = request.data.get("text", "")
 
