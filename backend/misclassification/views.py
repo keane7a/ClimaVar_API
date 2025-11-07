@@ -102,7 +102,8 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             )
             if chunk_id:
                 chunk_id = chunk_id.split("_")[0]
-            cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
+            # cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
+            cites.append(f"{title}, ({year}) - {url}")
 
         return "".join(lines), list(set(cites))
 
