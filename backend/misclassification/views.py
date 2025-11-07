@@ -239,7 +239,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             llm_output=final_answer,
             is_misinformation=is_misinformation,
         )
-        
+
         return Response(
             {
                 "llm_response": final_answer,
