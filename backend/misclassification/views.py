@@ -162,8 +162,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             classify_claim = llm_client.invoke(
                 PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query)
             )
-
-            if classify_claim.strip() != "1":
+            if "0" in classify_claim:
                 return Response(
                     {
                         "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
@@ -240,7 +239,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             llm_output=final_answer,
             is_misinformation=is_misinformation,
         )
-        print(cites, "here")
+
         return Response(
             {
                 "llm_response": final_answer,
