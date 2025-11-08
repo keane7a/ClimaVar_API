@@ -24,3 +24,7 @@ class UserSerializer(serializers.ModelSerializer):
             raise DRFValidationError(e.messages)
         validated_data["password"] = make_password(validated_data["password"])
         return super().create(validated_data)
+
+class LoginSerializer(serializers.Serializer):
+    user = UserSerializer()
+    message = serializers.CharField()
