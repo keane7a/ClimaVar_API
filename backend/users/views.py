@@ -11,6 +11,8 @@ from utils.docs_utils import (
     GenerateTokenSerializer,
     GENERATE_TOKEN_RESPONSES,
     GENERATE_TOKEN_EXAMPLES,
+    LOGIN_RESPONSES, 
+    LOGIN_EXAMPLES
 )
 
 
@@ -65,6 +67,14 @@ class UserViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    
+    @extend_schema(
+        summary="User Login",
+        description="Log in a user and generate an authentication token.",
+        request=LoginSerializer,
+        responses=LOGIN_RESPONSES,
+        examples=LOGIN_EXAMPLES,
+    )
     @action(
         detail=False,
         methods=["post"],
