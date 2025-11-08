@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth import get_user_model
 
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = get_user_model()
@@ -22,6 +23,7 @@ class UserSerializer(serializers.ModelSerializer):
             raise DRFValidationError(e.messages)
         validated_data["password"] = make_password(validated_data["password"])
         return super().create(validated_data)
+
 
 class LoginSerializer(serializers.Serializer):
     user = UserSerializer()
