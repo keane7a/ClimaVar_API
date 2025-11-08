@@ -3,9 +3,9 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, AllowAny
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from users.serializers import UserSerializer
+from users.serializers import UserSerializer, LoginSerializer
 from drf_spectacular.utils import extend_schema_view, extend_schema
 from utils.docs_utils import (
     GenerateTokenSerializer,
@@ -64,3 +64,39 @@ class UserViewSet(viewsets.ModelViewSet):
             {"token": token[0].key},
             status=status.HTTP_200_OK,
         )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="login",
+        name="login",
+        permission_classes=[AllowAny],
+    )
+    def login(self, request, *args, **kwargs): 
+        username = request.data.get("username", None)
+        password = request.data.get("password", None)
+        if username is None or password is None:
+            return Response(
+                {"message": "Username and password cannot be empty"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = authenticate(username=username, password=password)
+        if user is None:
+            return Response(
+                {"message": "Invalid username or password!!"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if user.is_active:
+            login(request, user)
+            loginSerializer = LoginSerializer(
+                {"message": "Logged in successfully", "user": user}
+            ).data
+            return Response(
+                loginSerializer,
+                status=status.HTTP_200_OK,
+            )
+        else:
+            return Response(
+                {"message": "This account is not active!!"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
