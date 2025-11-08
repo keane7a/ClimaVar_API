@@ -5,7 +5,15 @@ from misclassification.models import MisclassificationLog
 class MisclassificationLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = MisclassificationLog
-        fields = ["id", "user", "user_input", "llm_output", "timestamp"]
+        fields = [
+            "id",
+            "user",
+            "user_input",
+            "llm_output",
+            "timestamp",
+            "is_misinformation",
+            "references",
+        ]
 
         extra_kwargs = {
             "id": {"read_only": True},

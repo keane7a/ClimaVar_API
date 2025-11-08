@@ -3,6 +3,7 @@ from users.serializers import LoginSerializer
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse
 from users.serializers import UserSerializer
 
+
 class ErrorResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
 
@@ -57,27 +58,27 @@ GENERATE_TOKEN_EXAMPLES = [
 ]
 
 LOGIN_RESPONSES = {
-    200: LoginSerializer, 
+    200: LoginSerializer,
     403: OpenApiResponse(
-        response=ErrorResponseSerializer, 
-        examples = [
+        response=ErrorResponseSerializer,
+        examples=[
             OpenApiExample(
-                "Invalid username or passoword", 
-                value={"message": "Invalid username or password!!"}, 
+                "Invalid username or passoword",
+                value={"message": "Invalid username or password!!"},
                 response_only=True,
             )
-        ]
-    ), 
+        ],
+    ),
     401: OpenApiResponse(
-        response=ErrorResponseSerializer, 
-        examples = [
+        response=ErrorResponseSerializer,
+        examples=[
             OpenApiExample(
-                "Inactive account", 
-                value= {"message": "This account is not active!!"}, 
-                response_only=True
+                "Inactive account",
+                value={"message": "This account is not active!!"},
+                response_only=True,
             )
-        ]
-    )
+        ],
+    ),
 }
 
 LOGIN_EXAMPLES = [
@@ -85,17 +86,13 @@ LOGIN_EXAMPLES = [
         "Successful login",
         value={"username": "john_doe", "password": "password123"},
         request_only=True,
-    ), 
+    ),
     OpenApiExample(
         "Login response",
-        value={
-        "message": "Logged in successfully",
-        "user":  UserSerializer().data
-        
-        },
+        value={"message": "Logged in successfully", "user": UserSerializer().data},
         response_only=True,
-    )
-]   
+    ),
+]
 
 
 ###############
