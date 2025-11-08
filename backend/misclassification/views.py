@@ -13,6 +13,7 @@ from utils.docs_utils import (
     CHECK_MISCLASSIFICATION_EXAMPLES,
     CHECK_MISCLASSIFICATION_REQUEST,
 )
+from permissions import isAdminAndReadListOnly
 
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
@@ -61,8 +62,6 @@ embedding_model = EmbeddingModel(
     destroy=extend_schema(exclude=True),
 )
 class MisclassificationViewSet(viewsets.ModelViewSet):
-    queryset = MisclassificationLog.objects.all()
-    serializer_class = MisclassificationLogSerializer
     permission_classes = [IsAdminUser]
 
     def _get_evidence_block(self, query, top_k=3):
@@ -248,3 +247,10 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class MisclassificationLogViewSet(viewsets.ModelViewSet): 
+    
+    queryset = MisclassificationLog.objects.all()
+    serializer_class = MisclassificationLogSerializer
+    permission_classes = [IsAdminUser]
