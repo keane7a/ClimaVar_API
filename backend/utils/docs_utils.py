@@ -1,5 +1,7 @@
 from rest_framework import serializers
+from users.serializers import LoginSerializer
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse
+from users.serializers import UserSerializer
 
 
 class ErrorResponseSerializer(serializers.Serializer):
@@ -51,6 +53,43 @@ GENERATE_TOKEN_EXAMPLES = [
     OpenApiExample(
         "Token response",
         value={"token": "xxxxx"},
+        response_only=True,
+    ),
+]
+
+LOGIN_RESPONSES = {
+    200: LoginSerializer,
+    403: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        examples=[
+            OpenApiExample(
+                "Invalid username or passoword",
+                value={"message": "Invalid username or password!!"},
+                response_only=True,
+            )
+        ],
+    ),
+    401: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        examples=[
+            OpenApiExample(
+                "Inactive account",
+                value={"message": "This account is not active!!"},
+                response_only=True,
+            )
+        ],
+    ),
+}
+
+LOGIN_EXAMPLES = [
+    OpenApiExample(
+        "Successful login",
+        value={"username": "john_doe", "password": "password123"},
+        request_only=True,
+    ),
+    OpenApiExample(
+        "Login response",
+        value={"message": "Logged in successfully", "user": UserSerializer().data},
         response_only=True,
     ),
 ]

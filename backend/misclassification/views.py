@@ -13,6 +13,7 @@ from utils.docs_utils import (
     CHECK_MISCLASSIFICATION_EXAMPLES,
     CHECK_MISCLASSIFICATION_REQUEST,
 )
+from permissions import isAdminAndReadListOnly
 
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
@@ -52,17 +53,7 @@ embedding_model = EmbeddingModel(
 # print("Initialized LLM, CARDS, and Embedding models.")
 
 
-@extend_schema_view(
-    list=extend_schema(exclude=True),
-    retrieve=extend_schema(exclude=True),
-    create=extend_schema(exclude=True),
-    update=extend_schema(exclude=True),
-    partial_update=extend_schema(exclude=True),
-    destroy=extend_schema(exclude=True),
-)
-class MisclassificationViewSet(viewsets.ModelViewSet):
-    queryset = MisclassificationLog.objects.all()
-    serializer_class = MisclassificationLogSerializer
+class MisclassificationViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
 
     def _get_evidence_block(self, query, top_k=3):
@@ -238,6 +229,7 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             user_input=request.data.get("text", ""),
             llm_output=final_answer,
             is_misinformation=is_misinformation,
+            references="\n".join(cites),
         )
 
         return Response(
@@ -248,3 +240,20 @@ class MisclassificationViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="Get Misclassification Logs",
+        description="Retrieve a list of all misclassification logs.",
+    ),
+    retrieve=extend_schema(exclude=True),
+    create=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
+    partial_update=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
+)
+class MisclassificationLogViewSet(viewsets.ModelViewSet):
+    queryset = MisclassificationLog.objects.all()
+    serializer_class = MisclassificationLogSerializer
+    permission_classes = [IsAdminUser]

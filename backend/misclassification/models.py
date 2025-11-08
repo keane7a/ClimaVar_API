@@ -10,3 +10,4 @@ class MisclassificationLog(models.Model):
     llm_output = models.TextField(max_length=300)
     is_misinformation = models.BooleanField(null=False)
     timestamp = models.DateTimeField(auto_now_add=True)
+    references = models.TextField(null=True)
