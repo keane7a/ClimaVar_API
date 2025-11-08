@@ -2,14 +2,14 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
-
+import random
 
 class MisclassificationTest(APITestCase):
     def setUp(self):
         self.check_misclassification_url = (
             "/api/misclassifications/check-misclassification/"
         )
-        self.user = User.objects.create_user(
+        self.user = User.objects.create_superuser(
             username="testuser", email="admin@example.com", password="password"
         )
         self.user_token = Token.objects.get_or_create(user=self.user)[0].key
@@ -54,3 +54,20 @@ class MisclassificationTest(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Query", response.data["message"])
+
+    def test_list_misclassificationLog(self):
+        self.client.force_login(self.user)
+        
+        # Get some logs first
+        rn = random.randint(1, 5)
+        for i in range(rn):
+            response = self.client.post(
+                self.check_misclassification_url,
+                data={"text": "Climate change is a religion."},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # test log
+        response = self.client.get("/api/misclassification-logs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), rn)
