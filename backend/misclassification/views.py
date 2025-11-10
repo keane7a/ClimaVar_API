@@ -138,14 +138,13 @@ class MisclassificationViewSet(viewsets.ViewSet):
             )
 
         # Translate to to english
-        src_lang, query = llm_client.translate_language(query, "en")
-
-        if not query:
+        src_lang, query = llm_client.translate_language(query, "English")
+        
+        if not (query and src_lang):
             return Response(
                 {"message": "Unsupported language for translation."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
 
         # Check using LLM to make sure.
         # Check for climate-related keywords
