@@ -3,7 +3,7 @@ from langdetect import detect
 from pydantic import BaseModel
 from typing import List
 from misclassification.utils.prompts import *
-
+import json
 
 class LLMClient:
     def __init__(self, client: OpenAI, model: str, temperature: float):
@@ -22,33 +22,45 @@ class LLMClient:
         )
         return res.choices[0].message.content.strip()
 
-    def translate_language(self, text, target_lang):
+    def translate_language(self, text:str, target_lang:str):
         """
         Translate text to the target language using the LLM.
         Args:
             text (str): The text to be translated.
-            target_lang (str): The target language for translation. Choices: "en": English, "pt": Portuguese, "es": Spanish
+            target_lang (str): The target language for translation. Choices: [english, portuguese, spanish]
         Returns:
             tuple: (detected_language, translated_text) if translation is needed, else (detected_language, original_text)
         """
 
-        if target_lang not in ["en", "pt", "es"]:
+        if target_lang.lower() not in ["english", "portuguese", "spanish"]:
             return None, None
 
-        lang_type = detect(text)
-        # check language type
-        if lang_type == target_lang:
-            return lang_type, text
-
-        lang_map = {"pt": "Portuguese", "en": "English", "es": "Spanish"}
-
-        if lang_type not in lang_map:
+        if not text or not text.strip():
             return None, None
 
-        prompt = f"Translate the following text from {lang_map[lang_type]} to {lang_map[target_lang]}:\n\n{text}"
-        translation = self.invoke(prompt)
-        return lang_type, translation
+        prompt = f"""
+        You are a multilingual assistant. 
+        Detect the language of the following text and translate it into {target_lang} if needed. You should translate it EXACTLY and DO NOT assume any context beyond the text provided.
+        ONLY English, Spanish, and Portuguese are supported otherwise detected_language = "".
+        If the text is already in {target_lang}, do not translate it again and translation = user's text.
+        
+        Return the result in JSON format exactly like this:
+        {{
+            "detected_language": "<detected_language>",
+            "translation": "<translated_text>"
+        }}
 
+        Text:
+        {text}
+        """
+       
+        response = self.invoke(prompt)
+        
+        data = json.loads(response)
+        detected_lang = data.get("detected_language", None)
+        translation = data.get("translation", None)
+        return detected_lang, translation 
+        
     def get_text_type(self, text: str):
         """
         Determine if the text is a 'question' or a 'statement'.

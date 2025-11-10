@@ -7,7 +7,6 @@ from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema_view, extend_schema
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
-from misclassification.utils.utils import climate_keyword_score
 from utils.docs_utils import (
     CHECK_MISCLASSIFICATION_RESPONSES,
     CHECK_MISCLASSIFICATION_EXAMPLES,
@@ -139,27 +138,26 @@ class MisclassificationViewSet(viewsets.ViewSet):
             )
 
         # Translate to to english
-        src_lang, query = llm_client.translate_language(query, "en")
-
-        if not query:
+        src_lang, query = llm_client.translate_language(query, "English")
+        
+        if not (query and src_lang):
             return Response(
                 {"message": "Unsupported language for translation."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not climate_keyword_score(query):
-            # Check using LLM to make sure.
-            # Check for climate-related keywords
-            classify_claim = llm_client.invoke(
-                PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query)
+        # Check using LLM to make sure.
+        # Check for climate-related keywords
+        classify_claim = llm_client.invoke(
+            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query)
+        )
+        if "0" in classify_claim:
+            return Response(
+                {
+                    "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if "0" in classify_claim:
-                return Response(
-                    {
-                        "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
         # Determine if statement or question
         is_statement = llm_client.get_text_type(query)
