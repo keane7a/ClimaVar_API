@@ -7,7 +7,6 @@ from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema_view, extend_schema
 from misclassification.models import MisclassificationLog
 from misclassification.serializer import MisclassificationLogSerializer
-from misclassification.utils.utils import climate_keyword_score
 from utils.docs_utils import (
     CHECK_MISCLASSIFICATION_RESPONSES,
     CHECK_MISCLASSIFICATION_EXAMPLES,
