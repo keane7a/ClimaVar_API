@@ -147,19 +147,19 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not climate_keyword_score(query):
-            # Check using LLM to make sure.
-            # Check for climate-related keywords
-            classify_claim = llm_client.invoke(
-                PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query)
+
+        # Check using LLM to make sure.
+        # Check for climate-related keywords
+        classify_claim = llm_client.invoke(
+            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query)
+        )
+        if "0" in classify_claim:
+            return Response(
+                {
+                    "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if "0" in classify_claim:
-                return Response(
-                    {
-                        "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
         # Determine if statement or question
         is_statement = llm_client.get_text_type(query)

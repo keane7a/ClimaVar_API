@@ -22,7 +22,7 @@ class LLMClient:
         )
         return res.choices[0].message.content.strip()
 
-    def translate_language(self, text, target_lang):
+    def translate_language(self, text:str, target_lang:str):
         """
         Translate text to the target language using the LLM.
         Args:
