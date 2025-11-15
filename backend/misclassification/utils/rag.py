@@ -5,24 +5,25 @@ from typing import List
 from misclassification.utils.prompts import *
 import json
 
+
 class LLMClient:
     def __init__(self, client: OpenAI, model: str, temperature: float):
         self.client = client
         self.model = model
         self.temperature = temperature
 
-    def invoke(self, prompt: str):
+    def invoke(self, prompt: str, temperature=None):
         """
         Call your general LLM (OpenAI) and return the message content.
         """
         res = self.client.chat.completions.create(
             model=self.model,
-            temperature=self.temperature,
+            temperature=temperature if temperature is not None else self.temperature,
             messages=[{"role": "user", "content": prompt}],
         )
         return res.choices[0].message.content.strip()
 
-    def translate_language(self, text:str, target_lang:str):
+    def translate_language(self, text: str, target_lang: str):
         """
         Translate text to the target language using the LLM.
         Args:
@@ -53,14 +54,14 @@ class LLMClient:
         Text:
         {text}
         """
-       
+
         response = self.invoke(prompt)
-        
+
         data = json.loads(response)
         detected_lang = data.get("detected_language", None)
         translation = data.get("translation", None)
-        return detected_lang, translation 
-        
+        return detected_lang, translation
+
     def get_text_type(self, text: str):
         """
         Determine if the text is a 'question' or a 'statement'.

@@ -139,7 +139,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
 
         # Translate to to english
         src_lang, query = llm_client.translate_language(query, "English")
-        
+
         if not (query and src_lang):
             return Response(
                 {"message": "Unsupported language for translation."},
@@ -149,9 +149,11 @@ class MisclassificationViewSet(viewsets.ViewSet):
         # Check using LLM to make sure.
         # Check for climate-related keywords
         classify_claim = llm_client.invoke(
-            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query)
+            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query),
+            temperature=0.0,
         )
-        if "0" in classify_claim:
+
+        if "0" in classify_claim[-10:]:
             return Response(
                 {
                     "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."

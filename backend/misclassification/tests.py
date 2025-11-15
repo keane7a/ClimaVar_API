@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 import random
 
+
 class MisclassificationTest(APITestCase):
     def setUp(self):
         self.check_misclassification_url = (
@@ -57,7 +58,7 @@ class MisclassificationTest(APITestCase):
 
     def test_list_misclassificationLog(self):
         self.client.force_login(self.user)
-        
+
         # Get some logs first
         rn = random.randint(1, 5)
         for i in range(rn):
@@ -66,7 +67,7 @@ class MisclassificationTest(APITestCase):
                 data={"text": "Climate change is a religion."},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         # test log
         response = self.client.get("/api/misclassification-logs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

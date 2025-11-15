@@ -83,24 +83,31 @@ Write only the question you generate. Not anything else.
 """
 
 PROMPT_CLIMATE_TEXT_CLASSIFICATION = """
-You are a highly accurate text classifier. Your task is to determine whether the following text is related to **climate or environmental topics**, including (but not limited to) climate change, global warming, environmental impacts, carbon emissions, renewable or clean energy, climate misinformation, nature, sustainability, or climate-related events (e.g., COP conferences, UN climate initiatives, or any possible related events).
+You are a precise, strict text classifier. For each text, first *reason* about its topic, relevance, and coherence, then *classify*.
 
-Output ONLY a single number:
-1 = climate-related
-0 = not climate-related
-
-Do not explain your reasoning or add any text besides 0 or 1.
+- Output 1 (ACCEPT): The text is a valid question, claim, statement, personal viewpoint, or misinformation related to climate science, nature, and environment.
+- Output 0 (REJECT): The text is NOT about climate science. This includes *adjacent* topics (finance, geography), spam, or incoherent gibberish.
 
 ### EXAMPLES
+
 Text: "Are 'green bonds' a good investment?"
+Reasoning: This query is about finance. The word 'green' is adjacent, but the core topic is investing, not climate science. Therefore, it should be rejected.
 Output: 0
-Text: "Who won the last World Cup?"
+
+Text: "global warming blah blah blah"
+Reasoning: This text contains keywords but is incoherent gibberish. It is not a valid query. Therefore, it should be rejected.
 Output: 0
-Text: "Why is the planet getting hotter?"
+
+Text: "COP30 is useless and it is all talk no action."
+Reasoning: This is a persoanl viewpoint about a climate conference. It is relevant to climate science discussion. Therefore, it should be accepted.
 Output: 1
+
 Text: "We can't be causing warming, because Antarctic sea ice is actually *increasing*."
+Reasoning: This query is a common piece of climate misinformation. It directly addresses the science of warming and sea ice. It must be accepted so it can be fact-checked.
 Output: 1
 
 ### YOUR TASK
+
 Text: "{user_question}"
+
 """
