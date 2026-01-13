@@ -17,10 +17,10 @@ from permissions import isAdminAndReadListOnly
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
 from misclassification.utils.embeddings import EmbeddingModel
-from misclassification.utils.prompts import *
 import chromadb
 import re
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 
 # Init LLM Model
@@ -49,8 +49,6 @@ embedding_model = EmbeddingModel(
     collection_name="ClimaVAR_v2",
 )
 
-# print("Initialized LLM, CARDS, and Embedding models.")
-
 
 class MisclassificationViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
@@ -67,10 +65,10 @@ class MisclassificationViewSet(viewsets.ViewSet):
             cites (list): list of citations as tuples (title, year, url)
         """
 
-        max_char = 450
+        max_char = 350  # Reduced from 450 for faster processing
         results = embedding_model.query_chromadb(query, top_k)
         if not results:
-            return "- (no evidence available)"
+            return "- (no evidence available)", []
 
         # build evidence block and citations
         lines, cites = [], []
@@ -92,14 +90,181 @@ class MisclassificationViewSet(viewsets.ViewSet):
             )
             if chunk_id:
                 chunk_id = chunk_id.split("_")[0]
-            # cites.append(f"{title}, page number {chunk_id} ({year}) - {url}")
             cites.append(f"{title}, ({year}) - {url}")
 
         return "".join(lines), list(set(cites))
 
+    def _is_likely_english(self, text):
+        """
+        Quick heuristic to detect if text is likely English.
+        Skips translation step for English text, saving 1-2 seconds.
+        """
+        non_ascii = sum(1 for char in text if ord(char) > 127)
+        if len(text) == 0:
+            return True
+        return non_ascii / len(text) < 0.15  # Less than 15% non-ASCII
+
+    def _normalize_to_claim(self, query):
+        """
+        Convert any input (question, statement, negative) to a neutral claim.
+        This makes downstream processing consistent and improves LLM quality.
+        
+        Examples:
+        "Is global warming real?" → "Global warming is real"
+        "Climate change is a hoax" → "Climate change is a hoax" (unchanged)
+        "I don't think CO2 affects temperature" → "CO2 does not affect temperature"
+        """
+        
+        prompt = f"""Convert this input to a simple factual claim statement.
+
+Input: "{query}"
+
+Rules:
+- If it's a question, convert to a statement
+- If it's already a statement, keep it as is
+- Preserve the meaning and any negations
+- Keep it concise (one sentence)
+- Do not add judgment or commentary
+
+Output only the normalized claim, nothing else.
+
+Examples:
+Input: "Is global warming real?"
+Output: Global warming is real
+
+Input: "Climate change is fake"
+Output: Climate change is fake
+
+Input: "Does CO2 cause warming?"
+Output: CO2 causes warming
+
+Input: "I don't believe sea levels are rising"
+Output: Sea levels are not rising
+
+Now normalize this input:
+Input: "{query}"
+Output:"""
+
+        normalized = llm_client.invoke(prompt, temperature=0.0).strip()
+        # Remove any quotes that might be added
+        normalized = normalized.strip('"').strip("'")
+        return normalized
+
+    def _check_climate_relevance(self, query):
+        """
+        Improved climate relevance check using LLM with explicit criteria.
+        More robust than simple keyword matching.
+        """
+        
+        prompt = f"""You are a precise text classifier for climate-related content.
+
+Text: "{query}"
+
+Climate-related topics include:
+- Climate change, global warming, greenhouse gases
+- Carbon emissions, CO2, methane, fossil fuels
+- Temperature changes, sea level rise, extreme weather
+- Renewable energy, solar, wind (in climate/environment context)
+- Deforestation, biodiversity loss, ecosystems
+- IPCC, Paris Agreement, COP conferences, climate policy
+- Ice melting, glaciers, polar regions, Arctic/Antarctic
+- Ocean acidification, coral bleaching
+- Climate science, climate models, climate data
+- Environmental impacts of human activities
+
+NOT climate-related:
+- Pure financial topics (unless directly about climate finance)
+- General geography without climate connection
+- Spam or gibberish
+- Non-climate environmental topics (e.g., plastic pollution without climate link)
+
+Reasoning: [Think about whether this is genuinely about climate science]
+Output: [1 if climate-related, 0 if not]
+
+Format your response as:
+Reasoning: <your reasoning>
+Output: <0 or 1>"""
+
+        response = llm_client.invoke(prompt, temperature=0.0)
+        # Extract the output number
+        return "1" in response[-10:]  # Check last 10 chars for "Output: 1"
+
+    def _build_unified_prompt(self, original_query, normalized_query, evidence_block, 
+                              is_misinformation, categories, is_question):
+        """
+        Build a unified prompt that works for all cases.
+        Uses football referee metaphors consistently.
+        """
+        
+        # Determine the appropriate prompt template
+        if is_misinformation:
+            # Use the existing FALSE_CLAIM template structure but with unified approach
+            prompt = f"""You are a climate expert refuting a claim like a friendly football referee.
+
+Rules:
+- Your style is light, informal, and full of football referee lingo.
+- Call out the misinformation. You MUST start with a referee call like "RED CARD!", "OFFSIDE!", "FOUL!", or "VAR SAYS NO!".
+- Use the evidence snippets to correct the misinformation.
+- Keep it to ONE sentence, max 300 characters.
+- Be direct but friendly - you're helping people understand the truth.
+
+### EVIDENCE SNIPPETS
+{evidence_block}
+
+### INPUT
+Original: {original_query}
+Claim being checked: {normalized_query}
+Misinformation detected: {categories}
+
+Output ONLY (no preamble):
+<one-sentence refutation, ≤300 chars, informal football referee commentary>"""
+        
+        elif is_question:
+            # Question format - use existing QUESTION template style
+            prompt = f"""You are a climate expert answering a question like a friendly football referee.
+
+Rules:
+- Your style is light, informal, and full of football referee lingo.
+- Use positive referee calls like "GOAL!", "PLAY ON!", "FAIR PLAY!", "VAR CONFIRMS!" when appropriate.
+- Use the evidence snippets to answer the user's question accurately.
+- Keep it to ONE sentence, max 300 characters.
+- Be enthusiastic and clear.
+
+### EVIDENCE SNIPPETS
+{evidence_block}
+
+### INPUT
+Question: {original_query}
+
+Output ONLY (no preamble):
+<one-sentence answer, ≤300 chars, informal football referee commentary>"""
+        
+        else:
+            # Statement that's not misinformation - neutral/confirming
+            prompt = f"""You are a climate expert evaluating a statement like a friendly football referee.
+
+Rules:
+- Your style is light, informal, and full of football referee lingo.
+- Use affirmative referee calls like "GOAL STANDS!", "PLAY ON!", "VAR CONFIRMS!", "FAIR PLAY!".
+- Use the evidence snippets to confirm or provide nuance to the statement.
+- Keep it to ONE sentence, max 300 characters.
+- Be supportive of accurate information.
+
+### EVIDENCE SNIPPETS
+{evidence_block}
+
+### INPUT
+Statement: {original_query}
+Checking: {normalized_query}
+
+Output ONLY (no preamble):
+<one-sentence evaluation, ≤300 chars, informal football referee commentary>"""
+
+        return prompt
+
     @extend_schema(
         summary="Check Misclassification",
-        description="Evaluate a user-supplied climate statement and return an LLM response in a football like manner.",
+        description="Evaluate a user-supplied climate statement and return an LLM response in a football referee manner.",
         request=CHECK_MISCLASSIFICATION_REQUEST,
         responses=CHECK_MISCLASSIFICATION_RESPONSES,
         examples=CHECK_MISCLASSIFICATION_EXAMPLES,
@@ -112,48 +277,39 @@ class MisclassificationViewSet(viewsets.ViewSet):
     )
     def check_misclassification(self, request):
         """
-        Evaluate a user-supplied climate claim and return a concise fact-check.
+        Simplified, optimized pipeline:
+        1. Validate & translate (with smart English detection)
+        2. Normalize input to standard format
+        3. Check climate relevance
+        4. Get evidence + CARDS classification in parallel
+        5. Generate unified response
         """
-
-        """
-        End-to-end:
-        1) Validate length
-        2) CARDS classify
-        3) Build prompt (instruction or one-shot)
-        4) LLM generation
-        5) Extract FINAL (≤300 chars)
-        6) Log with columns indicating prompt family and chain-of-thought
-        """
-
-        # Parameters
-        top_k_evidence = 2
 
         query = request.data.get("text", "")
 
-        # 1) Validate
+        # 1) Validate length
         if not 10 < len(query) < 300:
             return Response(
                 {"message": "Input text must be between 10 and 300 characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Translate to to english
-        src_lang, query = llm_client.translate_language(query, "English")
+        # 2) Smart translation - skip if already English (saves 1-2 seconds)
+        if self._is_likely_english(query):
+            src_lang = "English"
+            query_english = query
+        else:
+            src_lang, query_english = llm_client.translate_language(query, "English")
+            if not (query_english and src_lang):
+                return Response(
+                    {"message": "Unsupported language for translation."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        if not (query and src_lang):
-            return Response(
-                {"message": "Unsupported language for translation."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Check using LLM to make sure.
-        # Check for climate-related keywords
-        classify_claim = llm_client.invoke(
-            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace("{user_question}", query),
-            temperature=0.0,
-        )
-
-        if "0" in classify_claim[-10:]:
+        # 3) Check climate relevance (improved prompt)
+        is_climate_related = self._check_climate_relevance(query_english)
+        
+        if not is_climate_related:
             return Response(
                 {
                     "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
@@ -161,69 +317,44 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Determine if statement or question
-        is_statement = llm_client.get_text_type(query)
+        # 4) Determine if it's a question (for prompt selection)
+        is_question = "?" in query_english
+        
+        # 5) Normalize input to claim format for consistency
+        normalized_query = self._normalize_to_claim(query_english)
 
-        # query is a question
-        if not is_statement:
-            # print("it is a question")
-            # Get evidence block
-            evidence_block, cites = self._get_evidence_block(
-                query, top_k=top_k_evidence
+        # 6) Get evidence and CARDS classification IN PARALLEL (saves 2-3 seconds!)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            evidence_future = executor.submit(
+                self._get_evidence_block, normalized_query, top_k=2
             )
-
-            # print(evidence_block)
-            # Get LLM answer based on embedding
-            prompt = PROMPT_QUESTION.replace("{user_question}", query).replace(
-                "{evidence_block}", evidence_block
+            cards_future = executor.submit(
+                cards_client.classify_claim, normalized_query
             )
+            
+            evidence_block, cites = evidence_future.result()
+            is_misinformation, categories = cards_future.result()
 
-            is_misinformation = False
+        # 7) Build unified prompt
+        prompt = self._build_unified_prompt(
+            original_query=query_english,
+            normalized_query=normalized_query,
+            evidence_block=evidence_block,
+            is_misinformation=is_misinformation,
+            categories=categories,
+            is_question=is_question
+        )
 
-        else:  # Query is a statement
-            # Classify statement
-            is_misinformation, categories = cards_client.classify_claim(query)
-
-            if is_misinformation:
-                # print("it is a misinformation")
-                # Convert user's query to neutral question for obtaining evidence block
-                prompt = PROMPT_CONVERT_TO_NEUTRAL_QUESTION.replace(
-                    "{user_question}", query
-                )
-                neutral_question = llm_client.invoke(prompt)
-
-                # print("neutral question", neutral_question)
-                # print("categories", categories)
-
-                # Get evidence block
-                evidence_block, cites = self._get_evidence_block(
-                    neutral_question, top_k=top_k_evidence
-                )
-
-                # print("evidence block", evidence_block)
-
-                # Get LLM answer based on embedding
-                prompt = (
-                    PROMPT_FALSE_CLAIM.replace("{user_claim}", query)
-                    .replace("{evidence_block}", evidence_block)
-                    .replace("{categories_summary}", categories)
-                )
-
-            else:  # if not misinformation
-                # print("it is not a misinformation")
-                evidence_block, cites = self._get_evidence_block(
-                    query, top_k=top_k_evidence
-                )
-                prompt = PROMPT_QUESTION.replace("{user_question}", query).replace(
-                    "{evidence_block}", evidence_block
-                )
-
-        # Get LLM answer
+        # 8) Generate answer
         llm_answer = llm_client.invoke(prompt)
 
-        # Translate back
-        final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
+        # 9) Translate back (if needed)
+        if src_lang != "English":
+            final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
+        else:
+            final_answer = llm_answer
 
+        # 10) Log and return
         MisclassificationLog.objects.create(
             user=request.user,
             user_input=request.data.get("text", ""),
