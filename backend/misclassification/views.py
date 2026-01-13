@@ -17,7 +17,6 @@ from permissions import isAdminAndReadListOnly
 from openai import OpenAI
 from misclassification.utils.rag import LLMClient, CARDSClient
 from misclassification.utils.embeddings import EmbeddingModel
-from misclassification.utils.prompts import *
 import chromadb
 import re
 import os
@@ -57,7 +56,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
     def _get_evidence_block(self, query, top_k=2):
         """
         Get evidence block from chromadb based on query.
-        Reduced to top_k=2 and max_char=350 for faster performance.
+        Optimized: top_k=2, max_char=350 for faster performance.
         """
         max_char = 350
         results = embedding_model.query_chromadb(query, top_k)
@@ -79,7 +78,10 @@ class MisclassificationViewSet(viewsets.ViewSet):
         return "".join(lines), list(set(cites))
 
     def _is_likely_english(self, text):
-        """Quick check if text is likely English to skip translation."""
+        """
+        Quick heuristic to detect if text is likely English.
+        Skips expensive translation call if true.
+        """
         if not text:
             return True
         non_ascii = sum(1 for char in text if ord(char) > 127)
@@ -87,7 +89,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
 
     def _check_climate_relevance(self, query):
         """
-        Improved climate relevance check.
+        Check if query is climate-related using LLM.
         More lenient to avoid false negatives.
         """
         prompt = f"""Determine if this text is related to climate science, environmental science, or climate change.
@@ -95,95 +97,134 @@ class MisclassificationViewSet(viewsets.ViewSet):
 Text: "{query}"
 
 Climate-related topics include:
-- Climate change, global warming, greenhouse gases, carbon
-- Temperature, weather, sea levels, ice, oceans
-- Renewable energy, fossil fuels (in climate context)
-- Deforestation, biodiversity, ecosystems
-- Climate policy, IPCC, COP, Paris Agreement
+- Climate change, global warming, greenhouse gases, carbon dioxide
+- Temperature, weather patterns, sea levels, ice, oceans, glaciers
+- Renewable energy, fossil fuels, coal, oil (in climate/environment context)
+- Deforestation, biodiversity, ecosystems, species extinction
+- Climate policy, IPCC, COP conferences, Paris Agreement
 - Environmental impacts of human activities
+- Climate models, climate data, climate science
 
-Answer ONLY with "1" if climate-related, or "0" if not.
+NOT climate-related:
+- Pure financial topics without climate connection
+- General news without climate angle
+- Spam, gibberish, or nonsense text
+
+Think carefully: Does this relate to climate or environment in ANY way?
+
+Answer with ONLY "1" if climate-related, or "0" if not.
 
 Output:"""
 
         response = llm_client.invoke(prompt, temperature=0.0).strip()
-        # Look for "1" in the response
         return "1" in response
 
-    def _improve_prompt_for_misinformation(self, user_query, evidence_block, categories):
+    def _build_prompt_for_question(self, user_question, evidence_block):
         """
-        Build prompt for FALSE claims using football referee metaphors.
-        Ensures consistency: use ONE strong call (RED CARD or OFFSIDE, not both).
+        Build prompt for answering QUESTIONS.
+        Uses positive referee calls.
         """
-        prompt = f"""You are a climate expert refuting a FALSE claim like a football referee.
+        prompt = f"""You are ClimaVAR, a climate fact-checker using football referee language.
 
-Rules:
-- Your style is light, informal, and uses football referee language.
-- Start with ONE strong referee call: "RED CARD!", "OFFSIDE!", or "FOUL!"
-- Use the evidence to explain why the claim is wrong.
-- Keep it to ONE sentence, max 280 characters.
-- Be direct but friendly.
+QUESTION: "{user_question}"
 
-### EVIDENCE
+SCIENTIFIC EVIDENCE:
 {evidence_block}
 
-### INPUT (FALSE CLAIM)
-"{user_query}"
+YOUR TASK:
+Answer this question accurately in ONE sentence (max 280 characters).
+
+REFEREE CALLS (pick ONE that fits):
+- "GOAL!" - for confirming clear facts
+- "PLAY ON!" - for straightforward answers
+- "VAR CONFIRMS!" - for fact-checked information
+- "FAIR PLAY!" - for balanced, accurate statements
+
+IMPORTANT RULES:
+1. Use ONLY ONE referee call at the start
+2. Keep answer under 280 characters
+3. Base answer on the evidence provided
+4. Be friendly and clear
+5. No preamble, just: [CALL] [Answer]
+
+EXAMPLE:
+Question: "Are sea levels rising?"
+Response: "GOAL! Sea levels are rising at 4mm per year, more than double the 20th-century rate, driven by warming oceans and melting ice!"
+
+Now answer the user's question:"""
+
+        return prompt
+
+    def _build_prompt_for_false_claim(self, user_claim, evidence_block, categories):
+        """
+        Build prompt for refuting FALSE claims.
+        Uses negative referee calls - ONE ONLY.
+        """
+        prompt = f"""You are ClimaVAR, a climate fact-checker using football referee language.
+
+CLAIM (identified as MISINFORMATION): "{user_claim}"
 Misinformation categories: {categories}
 
-Output ONLY (no preamble):
-<one-sentence refutation using referee language, ≤280 chars>"""
-        
-        return prompt
-
-    def _improve_prompt_for_question(self, user_question, evidence_block):
-        """
-        Build prompt for QUESTIONS using football referee metaphors.
-        Uses positive calls like GOAL!, PLAY ON!, etc.
-        """
-        prompt = f"""You are a climate expert answering a question like a football referee.
-
-Rules:
-- Your style is light, informal, and uses football referee language.
-- Use positive referee calls: "GOAL!", "PLAY ON!", "FAIR PLAY!", "VAR CONFIRMS!"
-- Use the evidence to answer the question accurately.
-- Keep it to ONE sentence, max 280 characters.
-- Be enthusiastic and clear.
-
-### EVIDENCE
+SCIENTIFIC EVIDENCE:
 {evidence_block}
 
-### QUESTION
-"{user_question}"
+YOUR TASK:
+Refute this false claim in ONE sentence (max 280 characters).
 
-Output ONLY (no preamble):
-<one-sentence answer using referee language, ≤280 chars>"""
-        
+REFEREE CALLS (pick ONLY ONE):
+- "RED CARD!" - for serious misinformation
+- "OFFSIDE!" - for incorrect claims  
+- "FOUL!" - for misleading statements
+
+CRITICAL RULES:
+1. Use ONLY ONE referee call (NOT "OFFSIDE RED CARD!" or combinations)
+2. Keep under 280 characters
+3. Use evidence to explain why it's wrong
+4. Be direct but friendly
+5. No preamble, just: [ONE CALL] [Refutation]
+
+EXAMPLE:
+Claim: "Climate change is a hoax"
+Response: "RED CARD! That's misinformation—99% of climate scientists agree climate change is real and human-caused, backed by decades of data!"
+
+Now refute the user's claim:"""
+
         return prompt
 
-    def _improve_prompt_for_true_statement(self, user_statement, evidence_block):
+    def _build_prompt_for_true_statement(self, user_statement, evidence_block):
         """
-        Build prompt for TRUE statements using football referee metaphors.
-        Uses confirming calls.
+        Build prompt for confirming TRUE/ACCURATE statements.
+        Uses positive referee calls.
         """
-        prompt = f"""You are a climate expert confirming an accurate statement like a football referee.
+        prompt = f"""You are ClimaVAR, a climate fact-checker using football referee language.
 
-Rules:
-- Your style is light, informal, and uses football referee language.
-- Use confirming referee calls: "GOAL!", "PLAY ON!", "VAR CONFIRMS!", "FAIR PLAY!"
-- Use the evidence to confirm and add context.
-- Keep it to ONE sentence, max 280 characters.
-- Be supportive of accurate information.
+STATEMENT (verified as accurate): "{user_statement}"
 
-### EVIDENCE
+SCIENTIFIC EVIDENCE:
 {evidence_block}
 
-### STATEMENT (ACCURATE)
-"{user_statement}"
+YOUR TASK:
+Confirm this accurate statement in ONE sentence (max 280 characters).
 
-Output ONLY (no preamble):
-<one-sentence confirmation using referee language, ≤280 chars>"""
-        
+REFEREE CALLS (pick ONE):
+- "GOAL!" - for correct statements
+- "PLAY ON!" - for accurate claims
+- "VAR CONFIRMS!" - for verified facts
+- "FAIR PLAY!" - for honest, accurate assessments
+
+IMPORTANT RULES:
+1. Use ONLY ONE referee call at the start
+2. Keep under 280 characters
+3. Add helpful context from evidence
+4. Be supportive and friendly
+5. No preamble, just: [CALL] [Confirmation]
+
+EXAMPLE:
+Statement: "Sea levels are rising"
+Response: "PLAY ON! Spot on—sea levels are rising at 4mm annually, double the 20th-century rate, due to warming oceans and melting ice!"
+
+Now confirm the user's statement:"""
+
         return prompt
 
     @extend_schema(
@@ -201,19 +242,17 @@ Output ONLY (no preamble):
     )
     def check_misclassification(self, request):
         """
-        V2 Pipeline - Optimized for both quality and performance:
+        ClimaVAR V2 Pipeline - Optimized for quality and performance.
         
-        QUESTIONS (contains "?"):
-          1. Translate if needed (skip if English)
-          2. Check climate relevance
-          3. Get evidence (no CARDS needed for questions)
-          4. Generate answer
-        
-        STATEMENTS (no "?"):
-          1. Translate if needed (skip if English)
-          2. Check climate relevance
-          3. Run CARDS + Get evidence IN PARALLEL
-          4. Generate appropriate response based on CARDS result
+        Flow:
+        1. Validate input length
+        2. Smart translation (skip if English)
+        3. Check climate relevance
+        4. Branch based on input type:
+           - QUESTIONS: Get evidence → Answer directly (no CARDS)
+           - STATEMENTS: Get evidence + CARDS in parallel → Respond based on result
+        5. Translate response back if needed
+        6. Log and return
         """
 
         query = request.data.get("text", "")
@@ -237,7 +276,7 @@ Output ONLY (no preamble):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # 3) Check climate relevance
+        # 3) Check climate relevance (improved to reduce false negatives)
         is_climate_related = self._check_climate_relevance(query_english)
         
         if not is_climate_related:
@@ -252,22 +291,22 @@ Output ONLY (no preamble):
         is_question = "?" in query_english
 
         if is_question:
-            # QUESTION PATH - No normalization, no CARDS needed
-            # Just get evidence and answer
+            # ===== QUESTION PATH =====
+            # Questions don't need CARDS - just answer from evidence
+            
             evidence_block, cites = self._get_evidence_block(query_english, top_k=2)
             
-            # Build prompt for question
-            prompt = self._improve_prompt_for_question(query_english, evidence_block)
+            prompt = self._build_prompt_for_question(query_english, evidence_block)
             
-            # Generate answer
-            llm_answer = llm_client.invoke(prompt)
+            llm_answer = llm_client.invoke(prompt, temperature=0.0)
             
             is_misinformation = False
             categories = ""
 
         else:
-            # STATEMENT PATH - Run CARDS to check for misinformation
-            # Get evidence and CARDS IN PARALLEL (saves 2-3 seconds!)
+            # ===== STATEMENT PATH =====
+            # Run CARDS + Evidence IN PARALLEL (saves 2-3 seconds!)
+            
             with ThreadPoolExecutor(max_workers=2) as executor:
                 evidence_future = executor.submit(
                     self._get_evidence_block, query_english, top_k=2
@@ -281,18 +320,17 @@ Output ONLY (no preamble):
 
             # Build appropriate prompt based on CARDS result
             if is_misinformation:
-                # FALSE claim - use refutation prompt
-                prompt = self._improve_prompt_for_misinformation(
+                # FALSE claim detected
+                prompt = self._build_prompt_for_false_claim(
                     query_english, evidence_block, categories
                 )
             else:
-                # TRUE/NEUTRAL statement - use confirmation prompt
-                prompt = self._improve_prompt_for_true_statement(
+                # TRUE/NEUTRAL statement
+                prompt = self._build_prompt_for_true_statement(
                     query_english, evidence_block
                 )
             
-            # Generate answer
-            llm_answer = llm_client.invoke(prompt)
+            llm_answer = llm_client.invoke(prompt, temperature=0.0)
 
         # 5) Translate back if needed
         if src_lang != "English":
