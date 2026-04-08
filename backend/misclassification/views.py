@@ -145,12 +145,14 @@ ABSOLUTE RULES:
         2. Validate input length
         3. Smart English detection — skip translation if not needed
         4. Climate relevance check
-        5. ClimateGPT — scientific answer + references
-        6. Detect misinformation from ClimateGPT answer
-        7. GPT-4o-mini — football-style verdict
-        8. Translate back if needed
-        9. Log to database (is_misinformation column preserved)
-        10. Cache + return
+        5. Detect question vs statement
+        6. Build context-aware ClimateGPT query
+        7. ClimateGPT — scientific answer + references
+        8. Detect misinformation (questions are never misinformation)
+        9. GPT-4o-mini — football-style verdict
+        10. Translate back if needed
+        11. Log to database (is_misinformation column preserved)
+        12. Cache + return
         """
 
         query = request.data.get("text", "")
@@ -201,30 +203,47 @@ ABSOLUTE RULES:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 5) Get scientific answer from ClimateGPT
+        # 5) Detect question vs statement
+        is_statement = llm_client.get_text_type(query_english)
+
+        # 6) Build context-aware query for ClimateGPT
+        # Questions are sent as-is so ClimateGPT answers directly.
+        # Statements are framed as accuracy checks so ClimateGPT evaluates them.
+        if not is_statement:
+            climategpt_query = query_english
+        else:
+            climategpt_query = (
+                f"Is the following statement accurate based on climate science? "
+                f"{query_english}"
+            )
+
+        # 7) Get scientific answer from ClimateGPT
         scientific_answer, references = climategpt_client.get_scientific_answer(
-            query_english
+            climategpt_query
         )
 
-        # 6) Detect misinformation from ClimateGPT's answer
-        is_misinformation = self._detect_misinformation_from_answer(
-            scientific_answer
-        )
+        # 8) Detect misinformation — questions are never misinformation
+        if not is_statement:
+            is_misinformation = False
+        else:
+            is_misinformation = self._detect_misinformation_from_answer(
+                scientific_answer
+            )
 
-        # 7) Generate football-style answer
+        # 9) Generate football-style answer
         llm_answer = self._build_football_answer(
             original_query=query_english,
             scientific_answer=scientific_answer,
             is_misinformation=is_misinformation,
         )
 
-        # 8) Translate back if needed
+        # 10) Translate back if needed
         if src_lang != "English":
             final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
         else:
             final_answer = llm_answer
 
-        # 9) Log — is_misinformation column preserved exactly as before
+        # 11) Log — is_misinformation column preserved exactly as before
         MisclassificationLog.objects.create(
             user=request.user,
             user_input=request.data.get("text", ""),
@@ -233,7 +252,7 @@ ABSOLUTE RULES:
             references="\n".join(references),
         )
 
-        # 10) Cache + return
+        # 12) Cache + return
         result = {
             "llm_response": final_answer,
             "misinformation": int(is_misinformation),
