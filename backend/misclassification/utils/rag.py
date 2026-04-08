@@ -1,9 +1,9 @@
 from openai import OpenAI
-from langdetect import detect
-from pydantic import BaseModel
-from typing import List
 from misclassification.utils.prompts import *
 import json
+import re
+from pydantic import BaseModel
+from typing import List
 
 
 class LLMClient:
@@ -12,27 +12,27 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
 
-    def invoke(self, prompt: str, temperature=None):
+    def invoke(self, prompt: str, system: str = None, temperature=None):
         """
-        Call your general LLM (OpenAI) and return the message content.
+        Call OpenAI and return the message content.
+        Supports optional system message for better instruction-following.
         """
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
         res = self.client.chat.completions.create(
             model=self.model,
             temperature=temperature if temperature is not None else self.temperature,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
         )
         return res.choices[0].message.content.strip()
 
     def translate_language(self, text: str, target_lang: str):
         """
         Translate text to the target language using the LLM.
-        Args:
-            text (str): The text to be translated.
-            target_lang (str): The target language for translation. Choices: [english, portuguese, spanish]
-        Returns:
-            tuple: (detected_language, translated_text) if translation is needed, else (detected_language, original_text)
         """
-
         if target_lang.lower() not in ["english", "portuguese", "spanish"]:
             return None, None
 
@@ -56,7 +56,6 @@ class LLMClient:
         """
 
         response = self.invoke(prompt)
-
         data = json.loads(response)
         detected_lang = data.get("detected_language", None)
         translation = data.get("translation", None)
@@ -67,32 +66,20 @@ class LLMClient:
         Determine if the text is a 'question' or a 'statement'.
         Return True if statement otherwise False.
         """
-
-        # Simple heuristic check first for speed
         text_lower = text.lower().strip()
         q_words = (
-            "what",
-            "who",
-            "where",
-            "when",
-            "why",
-            "how",
-            "does",
-            "is ",
-            "are ",
-            "do ",
+            "what", "who", "where", "when", "why", "how",
+            "does", "is ", "are ", "do ",
         )
         if text_lower.endswith("?") or text.startswith(q_words):
             return False
 
-        # Fallback to LLM for ambiguity
         prompt = (
             "Classify the following text as either 'Question' or 'Statement'. "
             "Respond with only one word: Question or Statement.\n\n"
             f"Text: {text}\n"
             "Classification:"
         )
-        # Call the LLM to get the classification
         text_type = self.invoke(prompt).strip().lower()
 
         if "question" in text_type:
@@ -101,63 +88,73 @@ class LLMClient:
         return True
 
 
-# Data models for CARDS response
-class Category(BaseModel):
-    category_number: str
-    category_name: str
-    justification: str  # Optional: remove this field if you don't want to include it in the response
+class ClimateGPTClient:
+    """
+    Client for the ClimateGPT API by Erasmus.AI.
+    OpenAI-compatible endpoint with climate-specific knowledge base.
+    Used to get scientific answers with inline source citations.
+    """
 
-
-class Categories(BaseModel):
-    categories: List[Category]
-
-
-class CARDSClient:
-    def __init__(self, client: OpenAI, model: str, temperature: float):
-        self.client = client
-        self.model = model
-        self.temperature = temperature
-
-        pass
-
-    def classify_claim(self, text):
-        """
-        Classify a claim with CARDS model.
-
-        Parameters
-        ----------
-        text : str
-        The user's claim/question.
-
-        Returns
-        -------
-        is_misinformation : bool
-            True if the text is classified as misinformation, False otherwise.
-        categories : List[Category]
-        """
-
-        response = self.client.beta.chat.completions.parse(
-            model=self.model,
-            messages=[
-                {"role": "user", "content": text},
-            ],
-            response_format=Categories,
-            extra_body={"prompt_id": "cards"},
-            temperature=self.temperature,
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://models.erasmus.ai/v1",
         )
-        parsed = response.choices[0].message.parsed
-        category_number = parsed.categories[0].category_number
+        self.model = "climategpt_8b_latest"
 
-        # Parse categories
-        bits = [
-            f"{c.category_number}: {c.category_name}, justification: {c.justification}"
-            for c in parsed.categories
+    def get_scientific_answer(self, query: str) -> tuple:
+        """
+        Query ClimateGPT for a scientific answer.
+
+        Returns:
+            answer (str): Full scientific answer from ClimateGPT
+            references (list): Source names extracted from the answer
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": query,
+                    }
+                ],
+                extra_headers={"x-litellm-api-key": self.api_key},
+            )
+            answer = response.choices[0].message.content.strip()
+            references = self._extract_references(answer)
+            return answer, references
+
+        except Exception as e:
+            # Fallback gracefully if ClimateGPT is down (it is beta)
+            return f"Climate science indicates this topic requires careful analysis.", []
+
+    def _extract_references(self, text: str) -> list:
+        """
+        Extract source references mentioned in ClimateGPT's response.
+        ClimateGPT embeds citations inline e.g. 'According to the IPCC...',
+        'NOAA data shows...', 'a study in Nature found...'.
+        """
+        known_sources = [
+            "IPCC", "NOAA", "NASA", "Nature", "Science", "EPA",
+            "WMO", "UNEP", "WHO", "World Bank", "IEA",
+            "Met Office", "Copernicus", "Carbon Brief",
         ]
-        categories = "Categories=" + "; ".join(bits)
 
-        # Text is has no misinformation
-        if len(parsed.categories) == 1 and category_number == "0_0_0":
-            return False, categories
+        found = []
+        text_upper = text.upper()
+        for source in known_sources:
+            if source.upper() in text_upper:
+                found.append(source)
 
-        # text is misinformation
-        return True, categories
+        journal_pattern = re.findall(
+            r'(?:journal|published in|according to|source[:\s])\s+([A-Z][A-Za-z\s]{2,30})',
+            text
+        )
+        for j in journal_pattern:
+            j = j.strip()
+            if j and j not in found and len(j) > 3:
+                found.append(j)
+
+        return list(set(found)) if found else ["ClimateGPT (Erasmus.AI)"]
