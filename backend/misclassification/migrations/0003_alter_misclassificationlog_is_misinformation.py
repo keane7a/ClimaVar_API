@@ -31,6 +31,7 @@ class Migration(migrations.Migration):
             model_name='misclassificationlog',
             name='is_misinformation',
             field=models.IntegerField(
+                null=False,
                 default=0,
                 choices=[
                     (0, 'Accurate'),
