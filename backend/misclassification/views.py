@@ -57,21 +57,28 @@ class MisclassificationViewSet(viewsets.ViewSet):
     def _detect_misinformation_from_answer(self, scientific_answer: str) -> bool:
         """
         Ask GPT-4o-mini to read ClimateGPT's answer and determine if the
-        original claim was misinformation.
-        ClimateGPT clearly signals corrections with words like 'misconception',
-        'not supported', 'inaccurate', 'hoax', 'false', 'is a claim'.
+        original statement was FALSE or MISLEADING.
+
+        Key improvement: we explicitly ask whether the statement is TRUE or FALSE,
+        not whether the response is "correcting" something — because ClimateGPT
+        always uses "The claim that X is accurate/inaccurate" framing which
+        previously confused the detector into thinking accurate claims were misinfo.
         """
-        system = "You are a fact-checking assistant. Answer only YES or NO."
+        system = "You are a fact-checking assistant. Answer only TRUE or FALSE."
         user = (
-            f"Read this climate science response and determine if it is "
-            f"CORRECTING a false or misleading claim.\n\n"
+            f"Read this climate science response carefully.\n\n"
             f"Response: {scientific_answer}\n\n"
-            f"Is this response correcting misinformation? Answer only YES or NO."
+            f"Based on this response, is the original statement or claim "
+            f"described as TRUE and ACCURATE according to climate science?\n\n"
+            f"Answer only TRUE (if the statement is accurate) or "
+            f"FALSE (if the statement is wrong or misleading)."
         )
         result = llm_client.invoke(
             user, system=system, temperature=0.0
         ).strip().upper()
-        return "YES" in result
+        # If ClimateGPT says the statement is TRUE → not misinformation
+        # If ClimateGPT says the statement is FALSE → misinformation
+        return "FALSE" in result
 
     def _build_football_answer(
         self,
@@ -207,8 +214,8 @@ ABSOLUTE RULES:
         is_statement = llm_client.get_text_type(query_english)
 
         # 6) Build context-aware query for ClimateGPT
-        # Questions are sent as-is so ClimateGPT answers directly.
-        # Statements are framed as accuracy checks so ClimateGPT evaluates them.
+        # Questions sent as-is so ClimateGPT answers directly.
+        # Statements framed as accuracy checks so ClimateGPT evaluates them.
         if not is_statement:
             climategpt_query = query_english
         else:
