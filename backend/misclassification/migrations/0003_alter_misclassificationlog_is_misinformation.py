@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('misclassification', '0001_initial'),
+    ('misclassification', '0002_misclassificationlog_references'),
     ]
 
     operations = [
