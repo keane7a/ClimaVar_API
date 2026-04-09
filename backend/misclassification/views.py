@@ -22,6 +22,11 @@ from django.core.cache import cache
 import hashlib
 
 
+# Verdict constants
+ACCURATE = 0
+MISINFORMATION = 1
+PARTIAL = 2
+
 # Init GPT-4o-mini — translation, climate check, football answer generation
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 llm_client = LLMClient(openai_client, model="gpt-4o-mini", temperature=0.2)
@@ -54,79 +59,116 @@ class MisclassificationViewSet(viewsets.ViewSet):
 
         return has_english_words and mostly_ascii
 
-    def _detect_misinformation_from_answer(self, scientific_answer: str) -> bool:
+    def _classify_claim(self, scientific_answer: str) -> int:
         """
-        Ask GPT-4o-mini to read ClimateGPT's answer and determine if the
-        original statement was FALSE or MISLEADING.
+        Ask GPT-4o-mini to classify the claim into one of three categories
+        based on ClimateGPT's scientific answer:
 
-        Key improvement: we explicitly ask whether the statement is TRUE or FALSE,
-        not whether the response is "correcting" something — because ClimateGPT
-        always uses "The claim that X is accurate/inaccurate" framing which
-        previously confused the detector into thinking accurate claims were misinfo.
+        0 = ACCURATE — claim is fully supported by climate science
+        1 = MISINFORMATION — claim is false or clearly misleading
+        2 = PARTIAL — claim has some truth but is oversimplified,
+                      exaggerated, missing important context,
+                      or only partially correct
+
+        Returns integer: 0, 1, or 2
         """
-        system = "You are a fact-checking assistant. Answer only TRUE or FALSE."
+        system = (
+            "You are a climate fact-checking assistant. "
+            "You must reply with exactly ONE digit: 0, 1, or 2. No other text."
+        )
         user = (
-            f"Read this climate science response carefully.\n\n"
-            f"Response: {scientific_answer}\n\n"
-            f"Based on this response, is the original statement or claim "
-            f"described as TRUE and ACCURATE according to climate science?\n\n"
-            f"Answer only TRUE (if the statement is accurate) or "
-            f"FALSE (if the statement is wrong or misleading)."
+            f"Read this climate science response carefully:\n\n"
+            f"{scientific_answer}\n\n"
+            f"Based on this response, classify the original statement:\n\n"
+            f"Reply with exactly one digit:\n"
+            f"0 = The statement is ACCURATE and fully supported by climate science\n"
+            f"1 = The statement is FALSE or clearly MISLEADING misinformation\n"
+            f"2 = The statement is PARTIALLY TRUE but oversimplified, exaggerated, "
+            f"or missing important context that changes its meaning\n\n"
+            f"Reply with only 0, 1, or 2."
         )
         result = llm_client.invoke(
             user, system=system, temperature=0.0
-        ).strip().upper()
-        # If ClimateGPT says the statement is TRUE → not misinformation
-        # If ClimateGPT says the statement is FALSE → misinformation
-        return "FALSE" in result
+        ).strip()
+
+        # Extract first digit found
+        for char in result:
+            if char in ("0", "1", "2"):
+                return int(char)
+
+        # Default to accurate if unclear
+        return ACCURATE
 
     def _build_football_answer(
         self,
         original_query: str,
         scientific_answer: str,
-        is_misinformation: bool,
+        verdict: int,
     ) -> str:
         """
-        Takes ClimateGPT's scientific answer and generates a football-style
-        ClimaVAR verdict using GPT-4o-mini with system/user separation
-        for strict instruction-following.
+        Generates a football-style ClimaVAR verdict using GPT-4o-mini.
+
+        verdict=0 (ACCURATE)      → GOAL / PLAY ON / VAR CONFIRMS / FAIR PLAY
+        verdict=1 (MISINFORMATION) → RED CARD / OFFSIDE / FOUL
+        verdict=2 (PARTIAL)        → YELLOW CARD only
         """
-        if is_misinformation:
+        if verdict == MISINFORMATION:
             system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
 
 ABSOLUTE RULES:
 - Your entire response must be ONE sentence, maximum 280 characters.
-- You MUST start with exactly ONE of these calls: RED CARD! or OFFSIDE! or FOUL! or YELLOW CARD!
-- Never use GOAL!, PLAY ON!, VAR CONFIRMS!, FAIR PLAY! for false claims.
-- Never combine two calls. "OFFSIDE RED CARD!" is WRONG. Pick ONE only.
+- You MUST start with exactly ONE of these calls: RED CARD! or OFFSIDE! or FOUL!
+- Never use GOAL!, PLAY ON!, VAR CONFIRMS!, FAIR PLAY!, or YELLOW CARD! for false claims.
+- Never combine two calls. Pick ONE only.
 - No preamble. No explanation. Just the single sentence starting with the call."""
 
             user = (
                 f'The user said: "{original_query}"\n\n'
-                f"A climate scientist reviewed this and found it is FALSE or MISLEADING. "
-                f"Here is the scientific explanation:\n\n{scientific_answer}\n\n"
-                f"Now write ONE sentence (max 280 chars) starting with "
-                f"RED CARD! or OFFSIDE! or FOUL! or YELLOW CARD! "
-                f"that refutes the claim using the scientific evidence above."
+                f"A climate scientist found this is FALSE or MISLEADING.\n\n"
+                f"Scientific explanation:\n{scientific_answer}\n\n"
+                f"Write ONE sentence (max 280 chars) starting with "
+                f"RED CARD! or OFFSIDE! or FOUL! "
+                f"that refutes the claim using the evidence above."
             )
-        else:
+
+        elif verdict == PARTIAL:
+            system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
+
+ABSOLUTE RULES:
+- Your entire response must be ONE sentence, maximum 280 characters.
+- You MUST start with exactly: YELLOW CARD!
+- This is for claims that are partially true but oversimplified or missing crucial context.
+- Your tone should be cautionary — "take care", "not the full picture", "needs context".
+- Never use RED CARD!, OFFSIDE!, FOUL!, GOAL!, PLAY ON!, VAR CONFIRMS!, FAIR PLAY!
+- No preamble. Just the single sentence starting with YELLOW CARD!"""
+
+            user = (
+                f'The user said: "{original_query}"\n\n'
+                f"A climate scientist found this is PARTIALLY TRUE but incomplete "
+                f"or oversimplified.\n\n"
+                f"Scientific explanation:\n{scientific_answer}\n\n"
+                f"Write ONE sentence (max 280 chars) starting with YELLOW CARD! "
+                f"that warns the user this needs more context, "
+                f"using the evidence above."
+            )
+
+        else:  # ACCURATE
             system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
 
 ABSOLUTE RULES:
 - Your entire response must be ONE sentence, maximum 280 characters.
 - You MUST start with exactly ONE of these calls: GOAL! or PLAY ON! or VAR CONFIRMS! or FAIR PLAY!
-- Never use RED CARD!, OFFSIDE!, FOUL!, YELLOW CARD! for true statements or questions.
+- Never use RED CARD!, OFFSIDE!, FOUL!, YELLOW CARD! for accurate claims.
 - Never combine two calls together.
-- No preamble. No explanation. Just the single sentence starting with the call."""
+- No preamble. Just the single sentence starting with the call."""
 
             user = (
                 f'The user said: "{original_query}"\n\n'
-                f"A climate scientist reviewed this and confirmed it is ACCURATE "
-                f"or answered the question. Here is the scientific explanation:\n\n"
-                f"{scientific_answer}\n\n"
-                f"Now write ONE sentence (max 280 chars) starting with "
+                f"A climate scientist confirmed this is ACCURATE.\n\n"
+                f"Scientific explanation:\n{scientific_answer}\n\n"
+                f"Write ONE sentence (max 280 chars) starting with "
                 f"GOAL! or PLAY ON! or VAR CONFIRMS! or FAIR PLAY! "
-                f"that confirms or answers using the scientific evidence above."
+                f"that confirms the claim using the evidence above."
             )
 
         return llm_client.invoke(user, system=system, temperature=0.0)
@@ -148,17 +190,18 @@ ABSOLUTE RULES:
         """
         ClimateGPT pipeline:
 
-        1. Cache check — instant for repeat queries
-        2. Validate input length
-        3. Smart English detection — skip translation if not needed
-        4. Climate relevance check
-        5. Detect question vs statement
-        6. Build context-aware ClimateGPT query
-        7. ClimateGPT — scientific answer + references
-        8. Detect misinformation (questions are never misinformation)
-        9. GPT-4o-mini — football-style verdict
+        1.  Cache check
+        2.  Validate length
+        3.  Smart English detection
+        4.  Climate relevance check
+        5.  Detect question vs statement
+        6.  Build context-aware ClimateGPT query
+        7.  ClimateGPT scientific answer
+        8.  Classify: 0=accurate, 1=misinfo, 2=partial
+            (questions are always 0)
+        9.  Generate football verdict
         10. Translate back if needed
-        11. Log to database (is_misinformation column preserved)
+        11. Log (is_misinformation now 0/1/2)
         12. Cache + return
         """
 
@@ -213,9 +256,7 @@ ABSOLUTE RULES:
         # 5) Detect question vs statement
         is_statement = llm_client.get_text_type(query_english)
 
-        # 6) Build context-aware query for ClimateGPT
-        # Questions sent as-is so ClimateGPT answers directly.
-        # Statements framed as accuracy checks so ClimateGPT evaluates them.
+        # 6) Build context-aware ClimateGPT query
         if not is_statement:
             climategpt_query = query_english
         else:
@@ -229,19 +270,17 @@ ABSOLUTE RULES:
             climategpt_query
         )
 
-        # 8) Detect misinformation — questions are never misinformation
+        # 8) Classify verdict — questions are always ACCURATE (0)
         if not is_statement:
-            is_misinformation = False
+            verdict = ACCURATE
         else:
-            is_misinformation = self._detect_misinformation_from_answer(
-                scientific_answer
-            )
+            verdict = self._classify_claim(scientific_answer)
 
         # 9) Generate football-style answer
         llm_answer = self._build_football_answer(
             original_query=query_english,
             scientific_answer=scientific_answer,
-            is_misinformation=is_misinformation,
+            verdict=verdict,
         )
 
         # 10) Translate back if needed
@@ -250,19 +289,19 @@ ABSOLUTE RULES:
         else:
             final_answer = llm_answer
 
-        # 11) Log — is_misinformation column preserved exactly as before
+        # 11) Log — is_misinformation is now 0, 1, or 2
         MisclassificationLog.objects.create(
             user=request.user,
             user_input=request.data.get("text", ""),
             llm_output=final_answer,
-            is_misinformation=is_misinformation,
+            is_misinformation=verdict,
             references="\n".join(references),
         )
 
         # 12) Cache + return
         result = {
             "llm_response": final_answer,
-            "misinformation": int(is_misinformation),
+            "misinformation": verdict,
             "references": references,
         }
         cache.set(cache_key, result, timeout=86400)
