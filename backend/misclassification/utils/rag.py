@@ -2,8 +2,6 @@ from openai import OpenAI
 from misclassification.utils.prompts import *
 import json
 import re
-from pydantic import BaseModel
-from typing import List
 
 
 class LLMClient:
@@ -106,6 +104,7 @@ class ClimateGPTClient:
     def get_scientific_answer(self, query: str) -> tuple:
         """
         Query ClimateGPT for a scientific answer.
+        Explicitly asks for named sources to improve reference extraction.
 
         Returns:
             answer (str): Full scientific answer from ClimateGPT
@@ -117,7 +116,11 @@ class ClimateGPTClient:
                 messages=[
                     {
                         "role": "user",
-                        "content": query,
+                        "content": (
+                            f"{query} "
+                            f"Please cite specific named sources such as IPCC, NOAA, "
+                            f"NASA, or peer-reviewed journals in your answer."
+                        ),
                     }
                 ],
                 extra_headers={"x-litellm-api-key": self.api_key},
@@ -127,34 +130,44 @@ class ClimateGPTClient:
             return answer, references
 
         except Exception as e:
-            # Fallback gracefully if ClimateGPT is down (it is beta)
-            return f"Climate science indicates this topic requires careful analysis.", []
+            return "Climate science indicates this topic requires careful analysis.", []
 
     def _extract_references(self, text: str) -> list:
         """
         Extract source references mentioned in ClimateGPT's response.
-        ClimateGPT embeds citations inline e.g. 'According to the IPCC...',
-        'NOAA data shows...', 'a study in Nature found...'.
+        Only matches specific named organisations and publications.
+        Never returns generic words like 'Science' or 'Nature' without context.
         """
+        # Only match these specific known sources as whole words/phrases
         known_sources = [
-            "IPCC", "NOAA", "NASA", "Nature", "Science", "EPA",
-            "WMO", "UNEP", "WHO", "World Bank", "IEA",
-            "Met Office", "Copernicus", "Carbon Brief",
+            "IPCC", "NOAA", "NASA", "EPA", "WMO", "UNEP", "WHO",
+            "World Bank", "IEA", "Met Office", "Copernicus",
+            "Carbon Brief", "Nature Climate Change",
+            "Environmental Research Letters",
+            "National Oceanic and Atmospheric Administration",
+            "Intergovernmental Panel on Climate Change",
+            "National Aeronautics and Space Administration",
         ]
 
         found = []
-        text_upper = text.upper()
         for source in known_sources:
-            if source.upper() in text_upper:
-                found.append(source)
+            # Match as whole word/phrase, case-insensitive
+            pattern = r'\b' + re.escape(source) + r'\b'
+            if re.search(pattern, text, re.IGNORECASE):
+                # Use the short name for display
+                display_name = source
+                if source == "National Oceanic and Atmospheric Administration":
+                    display_name = "NOAA"
+                elif source == "Intergovernmental Panel on Climate Change":
+                    display_name = "IPCC"
+                elif source == "National Aeronautics and Space Administration":
+                    display_name = "NASA"
+                if display_name not in found:
+                    found.append(display_name)
 
-        journal_pattern = re.findall(
-            r'(?:journal|published in|according to|source[:\s])\s+([A-Z][A-Za-z\s]{2,30})',
-            text
-        )
-        for j in journal_pattern:
-            j = j.strip()
-            if j and j not in found and len(j) > 3:
-                found.append(j)
+        # Only return if we found real named sources
+        if found:
+            return list(set(found))
 
-        return list(set(found)) if found else ["ClimateGPT (Erasmus.AI)"]
+        # Honest fallback — ClimateGPT itself is the source
+        return ["ClimateGPT — Erasmus.AI (climategpt.ai)"]
