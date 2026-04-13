@@ -108,7 +108,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
         """
         Generates a football-style ClimaVAR verdict using GPT-4o-mini.
 
-        verdict=0 (ACCURATE)      → GOAL / PLAY ON / VAR CONFIRMS / FAIR PLAY
+        verdict=0 (ACCURATE)       → GOAL / PLAY ON / VAR CONFIRMS / FAIR PLAY
         verdict=1 (MISINFORMATION) → RED CARD / OFFSIDE / FOUL
         verdict=2 (PARTIAL)        → YELLOW CARD only
         """
@@ -138,7 +138,7 @@ ABSOLUTE RULES:
 - Your entire response must be ONE sentence, maximum 280 characters.
 - You MUST start with exactly: YELLOW CARD!
 - This is for claims that are partially true but oversimplified or missing crucial context.
-- Your tone should be cautionary — "take care", "not the full picture", "needs context".
+- Your tone should be cautionary — "not the full picture", "needs context", "take care".
 - Never use RED CARD!, OFFSIDE!, FOUL!, GOAL!, PLAY ON!, VAR CONFIRMS!, FAIR PLAY!
 - No preamble. Just the single sentence starting with YELLOW CARD!"""
 
@@ -193,7 +193,7 @@ ABSOLUTE RULES:
         1.  Cache check
         2.  Validate length
         3.  Smart English detection
-        4.  Climate relevance check
+        4.  Climate relevance check — strict output parsing
         5.  Detect question vs statement
         6.  Build context-aware ClimateGPT query
         7.  ClimateGPT scientific answer
@@ -201,7 +201,7 @@ ABSOLUTE RULES:
             (questions are always 0)
         9.  Generate football verdict
         10. Translate back if needed
-        11. Log (is_misinformation now 0/1/2)
+        11. Log (is_misinformation: 0, 1, or 2)
         12. Cache + return
         """
 
@@ -234,14 +234,20 @@ ABSOLUTE RULES:
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # 4) Climate relevance check
+        # 4) Climate relevance check — robust output parsing
         classify_claim = llm_client.invoke(
             PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace(
                 "{user_question}", query_english
             ),
             temperature=0.0,
         )
-        if "0" in classify_claim[-10:]:
+        classify_clean = classify_claim.strip().lower()
+        if (
+            "output: 0" in classify_clean
+            or classify_clean.endswith("\n0")
+            or classify_clean.endswith(" 0")
+            or classify_clean.strip() == "0"
+        ):
             return Response(
                 {
                     "message": (
@@ -257,6 +263,8 @@ ABSOLUTE RULES:
         is_statement = llm_client.get_text_type(query_english)
 
         # 6) Build context-aware ClimateGPT query
+        # Questions sent as-is so ClimateGPT answers directly.
+        # Statements framed as accuracy checks so ClimateGPT evaluates them.
         if not is_statement:
             climategpt_query = query_english
         else:
@@ -289,7 +297,7 @@ ABSOLUTE RULES:
         else:
             final_answer = llm_answer
 
-        # 11) Log — is_misinformation is now 0, 1, or 2
+        # 11) Log — is_misinformation is 0, 1, or 2
         MisclassificationLog.objects.create(
             user=request.user,
             user_input=request.data.get("text", ""),
