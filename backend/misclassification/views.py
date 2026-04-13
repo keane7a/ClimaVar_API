@@ -42,21 +42,30 @@ class MisclassificationViewSet(viewsets.ViewSet):
         """
         Quick heuristic to detect English text.
         Saves 1-2 seconds by skipping translation for English queries.
+        Only uses words that are uniquely English and do not appear
+        in Portuguese or Spanish — avoids false positives on multilingual
+        words like 'global', 'climate', 'solar', 'natural'.
         """
         if not text:
             return True
 
         text_lower = text.lower().strip()
-        english_words = [
+        words = text_lower.split()
+
+        # Words that are uniquely English and rarely appear in Portuguese/Spanish
+        english_only_words = [
             'is', 'are', 'does', 'do', 'can', 'will', 'what', 'how',
-            'why', 'when', 'where', 'the', 'climate', 'global', 'warming'
+            'why', 'when', 'where', 'the', 'this', 'that', 'have',
+            'has', 'been', 'their', 'there', 'because', 'which', 'would',
+            'warming', 'weather', 'carbon', 'emissions',
         ]
-        has_english_words = any(
-            word in text_lower.split() for word in english_words
-        )
+
+        has_english_words = any(word in words for word in english_only_words)
+
         non_ascii = sum(1 for char in text if ord(char) > 127)
         mostly_ascii = (non_ascii / len(text)) < 0.15
 
+        # Both conditions must be true
         return has_english_words and mostly_ascii
 
     def _classify_claim(self, scientific_answer: str) -> int:
@@ -108,9 +117,9 @@ class MisclassificationViewSet(viewsets.ViewSet):
         """
         Generates a football-style ClimaVAR verdict using GPT-4o-mini.
 
-        verdict=0 (ACCURATE)       → GOAL / PLAY ON / VAR CONFIRMS / FAIR PLAY
-        verdict=1 (MISINFORMATION) → RED CARD / OFFSIDE / FOUL
-        verdict=2 (PARTIAL)        → YELLOW CARD only
+        verdict=0 (ACCURATE)       → GOAL! / PLAY ON! / VAR CONFIRMS! / FAIR PLAY!
+        verdict=1 (MISINFORMATION) → RED CARD! / OFFSIDE! / FOUL!
+        verdict=2 (PARTIAL)        → YELLOW CARD! only
         """
         if verdict == MISINFORMATION:
             system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
@@ -192,8 +201,8 @@ ABSOLUTE RULES:
 
         1.  Cache check
         2.  Validate length
-        3.  Smart English detection
-        4.  Climate relevance check — strict output parsing
+        3.  Smart English detection — only uses uniquely English words
+        4.  Climate relevance check — robust Output: 0/1 parsing
         5.  Detect question vs statement
         6.  Build context-aware ClimateGPT query
         7.  ClimateGPT scientific answer
@@ -220,7 +229,7 @@ ABSOLUTE RULES:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 3) Smart translation — skip if English
+        # 3) Smart translation — skip only if confidently English
         if self._is_likely_english(query):
             src_lang = "English"
             query_english = query
