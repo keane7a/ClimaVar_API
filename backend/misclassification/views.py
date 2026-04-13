@@ -18,6 +18,7 @@ from openai import OpenAI
 from misclassification.utils.rag import LLMClient, ClimateGPTClient
 from misclassification.utils.prompts import *
 import os
+import re
 from django.core.cache import cache
 import hashlib
 
@@ -40,33 +41,38 @@ class MisclassificationViewSet(viewsets.ViewSet):
 
     def _is_likely_english(self, text):
         """
-        Quick heuristic to detect English text.
-        Saves 1-2 seconds by skipping translation for English queries.
-        Only uses words that are uniquely English and do not appear
-        in Portuguese or Spanish — avoids false positives on multilingual
-        words like 'global', 'climate', 'solar', 'natural'.
+        Detects whether text is English.
+        Strategy:
+        1. If text contains accented characters common in PT/ES, it is NOT English.
+        2. If text contains uniquely English function words, it IS English.
+        3. Otherwise assume non-English and translate to be safe.
         """
         if not text:
             return True
 
+        # Step 1 — accented chars that strongly indicate PT/ES/FR
+        # If any of these appear, definitely not English
+        non_english_chars = set('àáâãäåæçèéêëìíîïðñòóôõöùúûüýþÿãõç')
+        if any(char in non_english_chars for char in text.lower()):
+            return False
+
+        # Step 2 — uniquely English function words
+        # Carefully chosen to NOT appear in Portuguese or Spanish
         text_lower = text.lower().strip()
-        words = text_lower.split()
+        words = set(text_lower.split())
+        english_only_words = {
+            'the', 'this', 'that', 'these', 'those',
+            'have', 'has', 'been', 'being',
+            'their', 'there', 'they', 'them',
+            'because', 'which', 'would', 'could', 'should',
+            'warming', 'weather', 'rainfall', 'flooding',
+            'aren', 'isn', 'doesn', 'didn', 'wasn', 'weren',
+        }
+        if words & english_only_words:
+            return True
 
-        # Words that are uniquely English and rarely appear in Portuguese/Spanish
-        english_only_words = [
-            'is', 'are', 'does', 'do', 'can', 'will', 'what', 'how',
-            'why', 'when', 'where', 'the', 'this', 'that', 'have',
-            'has', 'been', 'their', 'there', 'because', 'which', 'would',
-            'warming', 'weather', 'carbon', 'emissions',
-        ]
-
-        has_english_words = any(word in words for word in english_only_words)
-
-        non_ascii = sum(1 for char in text if ord(char) > 127)
-        mostly_ascii = (non_ascii / len(text)) < 0.15
-
-        # Both conditions must be true
-        return has_english_words and mostly_ascii
+        # Step 3 — uncertain, translate to be safe
+        return False
 
     def _classify_claim(self, scientific_answer: str) -> int:
         """
@@ -93,7 +99,8 @@ class MisclassificationViewSet(viewsets.ViewSet):
             f"0 = The statement is ACCURATE and fully supported by climate science\n"
             f"1 = The statement is FALSE or clearly MISLEADING misinformation\n"
             f"2 = The statement is PARTIALLY TRUE but oversimplified, exaggerated, "
-            f"or missing important context that changes its meaning\n\n"
+            f"or missing important context — also use 2 if the response says the "
+            f"relationship is complex, uncertain, debated, or requires further research\n\n"
             f"Reply with only 0, 1, or 2."
         )
         result = llm_client.invoke(
@@ -201,7 +208,7 @@ ABSOLUTE RULES:
 
         1.  Cache check
         2.  Validate length
-        3.  Smart English detection — only uses uniquely English words
+        3.  Smart English detection — accent-based + function word check
         4.  Climate relevance check — robust Output: 0/1 parsing
         5.  Detect question vs statement
         6.  Build context-aware ClimateGPT query
@@ -272,8 +279,6 @@ ABSOLUTE RULES:
         is_statement = llm_client.get_text_type(query_english)
 
         # 6) Build context-aware ClimateGPT query
-        # Questions sent as-is so ClimateGPT answers directly.
-        # Statements framed as accuracy checks so ClimateGPT evaluates them.
         if not is_statement:
             climategpt_query = query_english
         else:
