@@ -72,6 +72,21 @@ class MisclassificationViewSet(viewsets.ViewSet):
         # Step 3 — uncertain, translate to be safe
         return False
 
+    def _is_negation(self, text: str) -> bool:
+        """
+        Detects whether the statement is a negation or denial.
+        Used to build a more direct ClimateGPT query for clear denials.
+        """
+        text_lower = text.lower()
+        negation_patterns = [
+            'is not', 'are not', 'does not', 'do not', 'cannot', 'can not',
+            'isn\'t', 'aren\'t', 'doesn\'t', 'don\'t', 'wasn\'t', 'weren\'t',
+            'not caused', 'not real', 'not happening', 'not true', 'not exist',
+            'no evidence', 'never', 'hoax', 'fake', 'fraud', 'myth',
+            'nothing to do', 'has nothing', 'have nothing',
+        ]
+        return any(pattern in text_lower for pattern in negation_patterns)
+
     def _classify_claim(self, scientific_answer: str) -> int:
         """
         Ask GPT-4o-mini to classify the claim into one of three categories
@@ -101,7 +116,8 @@ class MisclassificationViewSet(viewsets.ViewSet):
             f"original claim inaccurate. When in doubt between 0 and 2, choose 0.\n\n"
             f"1 = MISINFORMATION: The statement is clearly FALSE or directly "
             f"contradicts scientific consensus. Use 1 when the scientific response "
-            f"explicitly corrects or refutes the claim.\n\n"
+            f"explicitly corrects or refutes the claim. Also use 1 for statements "
+            f"that deny, negate, or dismiss established climate science facts.\n\n"
             f"2 = PARTIAL: Use 2 ONLY when the original statement itself is "
             f"misleading or oversimplified in a way that would cause "
             f"misunderstanding — for example, a statement that is technically "
@@ -114,8 +130,12 @@ class MisclassificationViewSet(viewsets.ViewSet):
             f"(confirmed by WMO, straightforwardly accurate)\n"
             f"- 'Global warming is caused mainly by human CO2 emissions' → 0 "
             f"(core scientific consensus, accurate)\n"
+            f"- 'Human CO2 emissions cause global warming' → 0 (accurate)\n"
             f"- 'Climate change is not caused by humans' → 1 (clear misinformation, "
             f"directly contradicts consensus)\n"
+            f"- 'Climate change is not caused by human activity' → 1 "
+            f"(clear misinformation, denial of established science)\n"
+            f"- 'Global warming is not happening' → 1 (clear misinformation)\n"
             f"- 'Climate change is a hoax invented by scientists' → 1 "
             f"(clear misinformation)\n"
             f"- 'Electric vehicles produce zero emissions' → 2 (partial — true for "
@@ -236,6 +256,7 @@ ABSOLUTE RULES:
         4.  Climate relevance check — robust Output: 0/1 parsing
         5.  Detect question vs statement
         6.  Build context-aware ClimateGPT query
+            — negations get a more direct "correct or incorrect?" framing
         7.  ClimateGPT scientific answer
         8.  Classify: 0=accurate, 1=misinfo, 2=partial
             (questions are always 0)
@@ -248,9 +269,9 @@ ABSOLUTE RULES:
         query = request.data.get("text", "")
 
         # 1) Cache check
-        cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
+        # cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
         # cached_result = cache.get(cache_key)
-        #if cached_result:
+        # if cached_result:
         #    return Response(cached_result, status=status.HTTP_200_OK)
 
         # 2) Validate length
@@ -303,8 +324,17 @@ ABSOLUTE RULES:
         is_statement = llm_client.get_text_type(query_english)
 
         # 6) Build context-aware ClimateGPT query
+        # Questions → sent as-is for direct answer
+        # Negations → ask explicitly if claim is correct or incorrect
+        # Statements → framed as accuracy check
         if not is_statement:
             climategpt_query = query_english
+        elif self._is_negation(query_english):
+            climategpt_query = (
+                f"Is the following claim correct or incorrect according to "
+                f"climate science? Please state clearly whether it is true or "
+                f"false: {query_english}"
+            )
         else:
             climategpt_query = (
                 f"Is the following statement accurate based on climate science? "
@@ -350,7 +380,7 @@ ABSOLUTE RULES:
             "misinformation": verdict,
             "references": references,
         }
-        cache.set(cache_key, result, timeout=86400)
+        # cache.set(cache_key, result, timeout=86400)
 
         return Response(result, status=status.HTTP_200_OK)
 
