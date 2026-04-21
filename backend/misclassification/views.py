@@ -249,9 +249,9 @@ ABSOLUTE RULES:
 
         # 1) Cache check
         cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
-        cached_result = cache.get(cache_key)
-        if cached_result:
-            return Response(cached_result, status=status.HTTP_200_OK)
+        # cached_result = cache.get(cache_key)
+        #if cached_result:
+        #    return Response(cached_result, status=status.HTTP_200_OK)
 
         # 2) Validate length
         if not 10 < len(query) < 300:
