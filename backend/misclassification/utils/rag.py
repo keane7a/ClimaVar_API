@@ -1,7 +1,6 @@
 from openai import OpenAI
 from misclassification.utils.prompts import *
 import json
-import re
 
 
 class LLMClient:
@@ -28,9 +27,6 @@ class LLMClient:
         return res.choices[0].message.content.strip()
 
     def translate_language(self, text: str, target_lang: str):
-        """
-        Translate text to the target language using the LLM.
-        """
         if target_lang.lower() not in ["english", "portuguese", "spanish"]:
             return None, None
 
@@ -60,10 +56,6 @@ class LLMClient:
         return detected_lang, translation
 
     def get_text_type(self, text: str):
-        """
-        Determine if the text is a 'question' or a 'statement'.
-        Return True if statement otherwise False.
-        """
         text_lower = text.lower().strip()
         q_words = (
             "what", "who", "where", "when", "why", "how",
@@ -90,7 +82,8 @@ class ClimateGPTClient:
     """
     Client for the ClimateGPT API by Erasmus.AI.
     OpenAI-compatible endpoint with climate-specific knowledge base.
-    Used to get scientific answers with inline source citations.
+    Used to get scientific answers to ground the football-style verdict.
+    References removed — not shown in the interface.
     """
 
     def __init__(self, api_key: str):
@@ -101,73 +94,41 @@ class ClimateGPTClient:
         )
         self.model = "climategpt_8b_latest"
 
-    def get_scientific_answer(self, query: str) -> tuple:
+    def get_scientific_answer(self, query: str, is_statement: bool = False) -> tuple:
         """
         Query ClimateGPT for a scientific answer.
-        Explicitly asks for named sources to improve reference extraction.
+
+        For statements, instructs ClimateGPT to begin with a clear
+        TRUE, FALSE, or PARTIALLY TRUE verdict before elaborating.
+        This prevents academic hedging from confusing the classifier.
 
         Returns:
             answer (str): Full scientific answer from ClimateGPT
-            references (list): Source names extracted from the answer
+            references (list): Always empty — references not shown in UI
         """
         try:
+            if is_statement:
+                content = (
+                    f"{query} "
+                    f"Begin your answer by stating clearly whether this is "
+                    f"TRUE, FALSE, or PARTIALLY TRUE according to climate science. "
+                    f"Then explain why."
+                )
+            else:
+                content = query
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
                         "role": "user",
-                        "content": (
-                            f"{query} "
-                            f"Please cite specific named sources such as IPCC, NOAA, "
-                            f"NASA, or peer-reviewed journals in your answer."
-                        ),
+                        "content": content,
                     }
                 ],
                 extra_headers={"x-litellm-api-key": self.api_key},
             )
             answer = response.choices[0].message.content.strip()
-            references = self._extract_references(answer)
-            return answer, references
+            return answer, []
 
         except Exception as e:
             return "Climate science indicates this topic requires careful analysis.", []
-
-    def _extract_references(self, text: str) -> list:
-        """
-        Extract source references mentioned in ClimateGPT's response.
-        Only matches specific named organisations and publications.
-        Never returns generic words like 'Science' or 'Nature' without context.
-        """
-        # Only match these specific known sources as whole words/phrases
-        known_sources = [
-            "IPCC", "NOAA", "NASA", "EPA", "WMO", "UNEP", "WHO",
-            "World Bank", "IEA", "Met Office", "Copernicus",
-            "Carbon Brief", "Nature Climate Change",
-            "Environmental Research Letters",
-            "National Oceanic and Atmospheric Administration",
-            "Intergovernmental Panel on Climate Change",
-            "National Aeronautics and Space Administration",
-        ]
-
-        found = []
-        for source in known_sources:
-            # Match as whole word/phrase, case-insensitive
-            pattern = r'\b' + re.escape(source) + r'\b'
-            if re.search(pattern, text, re.IGNORECASE):
-                # Use the short name for display
-                display_name = source
-                if source == "National Oceanic and Atmospheric Administration":
-                    display_name = "NOAA"
-                elif source == "Intergovernmental Panel on Climate Change":
-                    display_name = "IPCC"
-                elif source == "National Aeronautics and Space Administration":
-                    display_name = "NASA"
-                if display_name not in found:
-                    found.append(display_name)
-
-        # Only return if we found real named sources
-        if found:
-            return list(set(found))
-
-        # Honest fallback — ClimateGPT itself is the source
-        return ["ClimateGPT — Erasmus.AI (climategpt.ai)"]
