@@ -51,13 +51,11 @@ class MisclassificationViewSet(viewsets.ViewSet):
             return True
 
         # Step 1 — accented chars that strongly indicate PT/ES/FR
-        # If any of these appear, definitely not English
         non_english_chars = set('àáâãäåæçèéêëìíîïðñòóôõöùúûüýþÿãõç')
         if any(char in non_english_chars for char in text.lower()):
             return False
 
         # Step 2 — uniquely English function words
-        # Carefully chosen to NOT appear in Portuguese or Spanish
         text_lower = text.lower().strip()
         words = set(text_lower.split())
         english_only_words = {
@@ -77,15 +75,17 @@ class MisclassificationViewSet(viewsets.ViewSet):
     def _classify_claim(self, scientific_answer: str) -> int:
         """
         Ask GPT-4o-mini to classify the claim into one of three categories
-        based on ClimateGPT's scientific answer:
+        based on ClimateGPT's scientific answer.
 
-        0 = ACCURATE — claim is fully supported by climate science
+        0 = ACCURATE — claim is correct per scientific consensus
         1 = MISINFORMATION — claim is false or clearly misleading
-        2 = PARTIAL — claim has some truth but is oversimplified,
-                      exaggerated, missing important context,
-                      or only partially correct
+        2 = PARTIAL — claim is misleading or oversimplified in a way
+                      that fundamentally changes its meaning
 
-        Returns integer: 0, 1, or 2
+        Key principle: scientific answers often add nuance even to
+        accurate statements. A broadly correct claim should be 0,
+        not 2, even if the answer mentions additional factors.
+        Only use 2 when the original claim itself would mislead someone.
         """
         system = (
             "You are a climate fact-checking assistant. "
@@ -94,13 +94,37 @@ class MisclassificationViewSet(viewsets.ViewSet):
         user = (
             f"Read this climate science response carefully:\n\n"
             f"{scientific_answer}\n\n"
-            f"Based on this response, classify the original statement:\n\n"
-            f"Reply with exactly one digit:\n"
-            f"0 = The statement is ACCURATE and fully supported by climate science\n"
-            f"1 = The statement is FALSE or clearly MISLEADING misinformation\n"
-            f"2 = The statement is PARTIALLY TRUE but oversimplified, exaggerated, "
-            f"or missing important context — also use 2 if the response says the "
-            f"relationship is complex, uncertain, debated, or requires further research\n\n"
+            f"Classify the original statement using these rules:\n\n"
+            f"0 = ACCURATE: The statement is correct and aligns with scientific "
+            f"consensus. Use 0 even if the scientific answer adds nuance or mentions "
+            f"other contributing factors — nuance in the answer does NOT make the "
+            f"original claim inaccurate. When in doubt between 0 and 2, choose 0.\n\n"
+            f"1 = MISINFORMATION: The statement is clearly FALSE or directly "
+            f"contradicts scientific consensus. Use 1 when the scientific response "
+            f"explicitly corrects or refutes the claim.\n\n"
+            f"2 = PARTIAL: Use 2 ONLY when the original statement itself is "
+            f"misleading or oversimplified in a way that would cause "
+            f"misunderstanding — for example, a statement that is technically "
+            f"partially true but omits a crucial fact that reverses its meaning, "
+            f"or a statement that mixes true and false elements together.\n\n"
+            f"CALIBRATION EXAMPLES:\n"
+            f"- 'CO2 is the main driver of global warming' → 0 (accurate, even "
+            f"if other gases also contribute)\n"
+            f"- 'Greenhouse gas concentrations reached record levels in 2023' → 0 "
+            f"(confirmed by WMO, straightforwardly accurate)\n"
+            f"- 'Global warming is caused mainly by human CO2 emissions' → 0 "
+            f"(core scientific consensus, accurate)\n"
+            f"- 'Climate change is not caused by humans' → 1 (clear misinformation, "
+            f"directly contradicts consensus)\n"
+            f"- 'Climate change is a hoax invented by scientists' → 1 "
+            f"(clear misinformation)\n"
+            f"- 'Electric vehicles produce zero emissions' → 2 (partial — true for "
+            f"tailpipe but ignores manufacturing and grid emissions, misleading)\n"
+            f"- 'Humans emit a tiny fraction of CO2 compared to nature, so we are "
+            f"not responsible for warming' → 2 (mixes a partial truth with a false "
+            f"conclusion in a misleading way)\n"
+            f"- 'Planting trees alone can solve climate change' → 2 (oversimplified "
+            f"in a way that causes misunderstanding)\n\n"
             f"Reply with only 0, 1, or 2."
         )
         result = llm_client.invoke(
