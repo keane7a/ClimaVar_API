@@ -50,12 +50,10 @@ class MisclassificationViewSet(viewsets.ViewSet):
         if not text:
             return True
 
-        # Step 1 — accented chars that strongly indicate PT/ES/FR
         non_english_chars = set('àáâãäåæçèéêëìíîïðñòóôõöùúûüýþÿãõç')
         if any(char in non_english_chars for char in text.lower()):
             return False
 
-        # Step 2 — uniquely English function words
         text_lower = text.lower().strip()
         words = set(text_lower.split())
         english_only_words = {
@@ -69,94 +67,61 @@ class MisclassificationViewSet(viewsets.ViewSet):
         if words & english_only_words:
             return True
 
-        # Step 3 — uncertain, translate to be safe
         return False
-
-    def _is_negation(self, text: str) -> bool:
-        """
-        Detects whether the statement is a negation or denial.
-        Used to build a more direct ClimateGPT query for clear denials.
-        """
-        text_lower = text.lower()
-        negation_patterns = [
-            'is not', 'are not', 'does not', 'do not', 'cannot', 'can not',
-            'isn\'t', 'aren\'t', 'doesn\'t', 'don\'t', 'wasn\'t', 'weren\'t',
-            'not caused', 'not real', 'not happening', 'not true', 'not exist',
-            'no evidence', 'never', 'hoax', 'fake', 'fraud', 'myth',
-            'nothing to do', 'has nothing', 'have nothing',
-        ]
-        return any(pattern in text_lower for pattern in negation_patterns)
 
     def _classify_claim(self, scientific_answer: str) -> int:
         """
-        Ask GPT-4o-mini to classify the claim into one of three categories
-        based on ClimateGPT's scientific answer.
-
-        0 = ACCURATE — claim is correct per scientific consensus
-        1 = MISINFORMATION — claim is false or clearly misleading
-        2 = PARTIAL — claim is misleading or oversimplified in a way
-                      that fundamentally changes its meaning
-
-        Key principle: scientific answers often add nuance even to
-        accurate statements. A broadly correct claim should be 0,
-        not 2, even if the answer mentions additional factors.
-        Only use 2 when the original claim itself would mislead someone.
+        Classify based on ClimateGPT's answer.
+        ClimateGPT is now instructed to begin with TRUE/FALSE/PARTIALLY TRUE
+        so we read that signal from the first sentence first.
+        Falls back to GPT-4o-mini only if the signal is unclear.
         """
+        # Extract first sentence — ClimateGPT now puts its verdict here
+        first_sentence = scientific_answer.split('.')[0].strip().upper()
+
+        # Check for explicit FALSE signal
+        if any(word in first_sentence for word in [
+            'FALSE', 'INCORRECT', 'INACCURATE', 'NOT TRUE', 'WRONG',
+            'MISLEADING', 'NOT ACCURATE', 'NOT SUPPORTED',
+        ]):
+            return MISINFORMATION
+
+        # Check for explicit PARTIAL signal
+        if any(word in first_sentence for word in [
+            'PARTIALLY TRUE', 'PARTIALLY CORRECT', 'PARTLY TRUE',
+            'PARTIALLY ACCURATE', 'MIXED', 'NUANCED',
+        ]):
+            return PARTIAL
+
+        # Check for explicit TRUE signal
+        if any(word in first_sentence for word in [
+            'TRUE', 'CORRECT', 'ACCURATE', 'SUPPORTED', 'CONFIRMED',
+            'YES', 'INDEED',
+        ]):
+            return ACCURATE
+
+        # Fallback — ask GPT-4o-mini to read the first sentence signal
         system = (
             "You are a climate fact-checking assistant. "
-            "You must reply with exactly ONE digit: 0, 1, or 2. No other text."
+            "Reply with exactly ONE digit: 0, 1, or 2. No other text."
         )
         user = (
-            f"Read this climate science response carefully:\n\n"
-            f"{scientific_answer}\n\n"
-            f"Classify the original statement using these rules:\n\n"
-            f"0 = ACCURATE: The statement is correct and aligns with scientific "
-            f"consensus. Use 0 even if the scientific answer adds nuance or mentions "
-            f"other contributing factors — nuance in the answer does NOT make the "
-            f"original claim inaccurate. When in doubt between 0 and 2, choose 0.\n\n"
-            f"1 = MISINFORMATION: The statement is clearly FALSE or directly "
-            f"contradicts scientific consensus. Use 1 when the scientific response "
-            f"explicitly corrects or refutes the claim. Also use 1 for statements "
-            f"that deny, negate, or dismiss established climate science facts.\n\n"
-            f"2 = PARTIAL: Use 2 ONLY when the original statement itself is "
-            f"misleading or oversimplified in a way that would cause "
-            f"misunderstanding — for example, a statement that is technically "
-            f"partially true but omits a crucial fact that reverses its meaning, "
-            f"or a statement that mixes true and false elements together.\n\n"
-            f"CALIBRATION EXAMPLES:\n"
-            f"- 'CO2 is the main driver of global warming' → 0 (accurate, even "
-            f"if other gases also contribute)\n"
-            f"- 'Greenhouse gas concentrations reached record levels in 2023' → 0 "
-            f"(confirmed by WMO, straightforwardly accurate)\n"
-            f"- 'Global warming is caused mainly by human CO2 emissions' → 0 "
-            f"(core scientific consensus, accurate)\n"
-            f"- 'Human CO2 emissions cause global warming' → 0 (accurate)\n"
-            f"- 'Climate change is not caused by humans' → 1 (clear misinformation, "
-            f"directly contradicts consensus)\n"
-            f"- 'Climate change is not caused by human activity' → 1 "
-            f"(clear misinformation, denial of established science)\n"
-            f"- 'Global warming is not happening' → 1 (clear misinformation)\n"
-            f"- 'Climate change is a hoax invented by scientists' → 1 "
-            f"(clear misinformation)\n"
-            f"- 'Electric vehicles produce zero emissions' → 2 (partial — true for "
-            f"tailpipe but ignores manufacturing and grid emissions, misleading)\n"
-            f"- 'Humans emit a tiny fraction of CO2 compared to nature, so we are "
-            f"not responsible for warming' → 2 (mixes a partial truth with a false "
-            f"conclusion in a misleading way)\n"
-            f"- 'Planting trees alone can solve climate change' → 2 (oversimplified "
-            f"in a way that causes misunderstanding)\n\n"
+            f"Read the first sentence of this climate science response:\n\n"
+            f'"{first_sentence}"\n\n'
+            f"Does this indicate the original statement is:\n"
+            f"0 = TRUE and accurate according to climate science\n"
+            f"1 = FALSE or misinformation\n"
+            f"2 = PARTIALLY TRUE but needs context\n\n"
             f"Reply with only 0, 1, or 2."
         )
         result = llm_client.invoke(
             user, system=system, temperature=0.0
         ).strip()
 
-        # Extract first digit found
         for char in result:
             if char in ("0", "1", "2"):
                 return int(char)
 
-        # Default to accurate if unclear
         return ACCURATE
 
     def _build_football_answer(
@@ -250,29 +215,28 @@ ABSOLUTE RULES:
         """
         ClimateGPT pipeline:
 
-        1.  Cache check
+        1.  Cache check — DISABLED FOR TESTING
         2.  Validate length
-        3.  Smart English detection — accent-based + function word check
-        4.  Climate relevance check — robust Output: 0/1 parsing
+        3.  Smart English detection
+        4.  Climate relevance check
         5.  Detect question vs statement
-        6.  Build context-aware ClimateGPT query
-            — negations get a more direct "correct or incorrect?" framing
-        7.  ClimateGPT scientific answer
-        8.  Classify: 0=accurate, 1=misinfo, 2=partial
-            (questions are always 0)
-        9.  Generate football verdict
-        10. Translate back if needed
-        11. Log (is_misinformation: 0, 1, or 2)
-        12. Cache + return
+        6.  ClimateGPT scientific answer
+            — statements get TRUE/FALSE/PARTIALLY TRUE prompt
+        7.  Classify verdict from ClimateGPT's first sentence
+            — questions always ACCURATE (0)
+        8.  Generate football verdict
+        9.  Translate back if needed
+        10. Log
+        11. Cache — DISABLED FOR TESTING
         """
 
         query = request.data.get("text", "")
 
-        # 1) Cache check
-        # cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
+        # 1) Cache check — DISABLED FOR TESTING
+        cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
         # cached_result = cache.get(cache_key)
         # if cached_result:
-        #    return Response(cached_result, status=status.HTTP_200_OK)
+        #     return Response(cached_result, status=status.HTTP_200_OK)
 
         # 2) Validate length
         if not 10 < len(query) < 300:
@@ -295,7 +259,7 @@ ABSOLUTE RULES:
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # 4) Climate relevance check — robust output parsing
+        # 4) Climate relevance check
         classify_claim = llm_client.invoke(
             PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace(
                 "{user_question}", query_english
@@ -323,49 +287,34 @@ ABSOLUTE RULES:
         # 5) Detect question vs statement
         is_statement = llm_client.get_text_type(query_english)
 
-        # 6) Build context-aware ClimateGPT query
-        # Questions → sent as-is for direct answer
-        # Negations → ask explicitly if claim is correct or incorrect
-        # Statements → framed as accuracy check
-        if not is_statement:
-            climategpt_query = query_english
-        elif self._is_negation(query_english):
-            climategpt_query = (
-                f"Is the following claim correct or incorrect according to "
-                f"climate science? Please state clearly whether it is true or "
-                f"false: {query_english}"
-            )
-        else:
-            climategpt_query = (
-                f"Is the following statement accurate based on climate science? "
-                f"{query_english}"
-            )
-
-        # 7) Get scientific answer from ClimateGPT
+        # 6) Get scientific answer from ClimateGPT
+        # Statements get explicit TRUE/FALSE/PARTIALLY TRUE prompt
+        # Questions sent as-is for direct answer
         scientific_answer, references = climategpt_client.get_scientific_answer(
-            climategpt_query
+            query_english,
+            is_statement=is_statement,
         )
 
-        # 8) Classify verdict — questions are always ACCURATE (0)
+        # 7) Classify verdict — questions always ACCURATE (0)
         if not is_statement:
             verdict = ACCURATE
         else:
             verdict = self._classify_claim(scientific_answer)
 
-        # 9) Generate football-style answer
+        # 8) Generate football-style answer
         llm_answer = self._build_football_answer(
             original_query=query_english,
             scientific_answer=scientific_answer,
             verdict=verdict,
         )
 
-        # 10) Translate back if needed
+        # 9) Translate back if needed
         if src_lang != "English":
             final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
         else:
             final_answer = llm_answer
 
-        # 11) Log — is_misinformation is 0, 1, or 2
+        # 10) Log
         MisclassificationLog.objects.create(
             user=request.user,
             user_input=request.data.get("text", ""),
@@ -374,7 +323,7 @@ ABSOLUTE RULES:
             references="\n".join(references),
         )
 
-        # 12) Cache + return
+        # 11) Cache — DISABLED FOR TESTING
         result = {
             "llm_response": final_answer,
             "misinformation": verdict,
