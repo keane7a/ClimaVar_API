@@ -40,20 +40,11 @@ class MisclassificationViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
 
     def _is_likely_english(self, text):
-        """
-        Detects whether text is English.
-        Strategy:
-        1. If text contains accented characters common in PT/ES, it is NOT English.
-        2. If text contains uniquely English function words, it IS English.
-        3. Otherwise assume non-English and translate to be safe.
-        """
         if not text:
             return True
-
         non_english_chars = set('àáâãäåæçèéêëìíîïðñòóôõöùúûüýþÿãõç')
         if any(char in non_english_chars for char in text.lower()):
             return False
-
         text_lower = text.lower().strip()
         words = set(text_lower.split())
         english_only_words = {
@@ -66,41 +57,35 @@ class MisclassificationViewSet(viewsets.ViewSet):
         }
         if words & english_only_words:
             return True
-
         return False
 
     def _classify_claim(self, scientific_answer: str) -> int:
         """
         Classify based on ClimateGPT's answer.
-        ClimateGPT is now instructed to begin with TRUE/FALSE/PARTIALLY TRUE
-        so we read that signal from the first sentence first.
-        Falls back to GPT-4o-mini only if the signal is unclear.
+        Reads TRUE/FALSE/PARTIALLY TRUE signal from first sentence.
+        Falls back to GPT-4o-mini if signal is unclear.
         """
-        # Extract first sentence — ClimateGPT now puts its verdict here
         first_sentence = scientific_answer.split('.')[0].strip().upper()
 
-        # Check for explicit FALSE signal
         if any(word in first_sentence for word in [
             'FALSE', 'INCORRECT', 'INACCURATE', 'NOT TRUE', 'WRONG',
             'MISLEADING', 'NOT ACCURATE', 'NOT SUPPORTED',
         ]):
             return MISINFORMATION
 
-        # Check for explicit PARTIAL signal
         if any(word in first_sentence for word in [
             'PARTIALLY TRUE', 'PARTIALLY CORRECT', 'PARTLY TRUE',
             'PARTIALLY ACCURATE', 'MIXED', 'NUANCED',
         ]):
             return PARTIAL
 
-        # Check for explicit TRUE signal
         if any(word in first_sentence for word in [
             'TRUE', 'CORRECT', 'ACCURATE', 'SUPPORTED', 'CONFIRMED',
             'YES', 'INDEED',
         ]):
             return ACCURATE
 
-        # Fallback — ask GPT-4o-mini to read the first sentence signal
+        # Fallback classifier
         system = (
             "You are a climate fact-checking assistant. "
             "Reply with exactly ONE digit: 0, 1, or 2. No other text."
@@ -109,9 +94,44 @@ class MisclassificationViewSet(viewsets.ViewSet):
             f"Read the first sentence of this climate science response:\n\n"
             f'"{first_sentence}"\n\n'
             f"Does this indicate the original statement is:\n"
-            f"0 = TRUE and accurate according to climate science\n"
+            f"0 = TRUE and accurate\n"
             f"1 = FALSE or misinformation\n"
             f"2 = PARTIALLY TRUE but needs context\n\n"
+            f"Reply with only 0, 1, or 2."
+        )
+        result = llm_client.invoke(
+            user, system=system, temperature=0.0
+        ).strip()
+
+        for char in result:
+            if char in ("0", "1", "2"):
+                return int(char)
+
+        return ACCURATE
+
+    def _classify_backup(self, query: str) -> int:
+        """
+        Classify directly using GPT-4o-mini when ClimateGPT is offline.
+        Uses its own knowledge of scientific consensus.
+        """
+        system = (
+            "You are a climate science fact-checker with expert knowledge "
+            "of IPCC reports and scientific consensus. "
+            "Reply with exactly ONE digit: 0, 1, or 2. No other text."
+        )
+        user = (
+            f"Classify this climate statement based on scientific consensus:\n\n"
+            f'"{query}"\n\n'
+            f"0 = ACCURATE: Correct and supported by scientific consensus.\n"
+            f"1 = MISINFORMATION: Clearly false or contradicts scientific consensus.\n"
+            f"2 = PARTIAL: Partially true but misleading or oversimplified.\n\n"
+            f"EXAMPLES:\n"
+            f"'Greenhouse gas concentrations reached record levels in 2023' → 0\n"
+            f"'Human activities are the primary cause of climate change' → 0\n"
+            f"'Climate change is not caused by human activity' → 1\n"
+            f"'Global warming is a hoax invented by scientists' → 1\n"
+            f"'Electric vehicles produce zero emissions' → 2\n"
+            f"'Planting trees alone can solve climate change' → 2\n\n"
             f"Reply with only 0, 1, or 2."
         )
         result = llm_client.invoke(
@@ -130,13 +150,6 @@ class MisclassificationViewSet(viewsets.ViewSet):
         scientific_answer: str,
         verdict: int,
     ) -> str:
-        """
-        Generates a football-style ClimaVAR verdict using GPT-4o-mini.
-
-        verdict=0 (ACCURATE)       → GOAL! / PLAY ON! / VAR CONFIRMS! / FAIR PLAY!
-        verdict=1 (MISINFORMATION) → RED CARD! / OFFSIDE! / FOUL!
-        verdict=2 (PARTIAL)        → YELLOW CARD! only
-        """
         if verdict == MISINFORMATION:
             system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
 
@@ -213,17 +226,15 @@ ABSOLUTE RULES:
     )
     def check_misclassification(self, request):
         """
-        ClimateGPT pipeline:
+        ClimateGPT pipeline with backup:
 
         1.  Cache check — DISABLED FOR TESTING
         2.  Validate length
         3.  Smart English detection
         4.  Climate relevance check
         5.  Detect question vs statement
-        6.  ClimateGPT scientific answer
-            — statements get TRUE/FALSE/PARTIALLY TRUE prompt
-        7.  Classify verdict from ClimateGPT's first sentence
-            — questions always ACCURATE (0)
+        6.  Try ClimateGPT — if offline, use GPT-4o-mini backup
+        7.  Classify verdict
         8.  Generate football verdict
         9.  Translate back if needed
         10. Log
@@ -232,7 +243,7 @@ ABSOLUTE RULES:
 
         query = request.data.get("text", "")
 
-        # 1) Cache check — DISABLED FOR TESTING
+        # 1) Cache — DISABLED FOR TESTING
         cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
         # cached_result = cache.get(cache_key)
         # if cached_result:
@@ -245,7 +256,7 @@ ABSOLUTE RULES:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 3) Smart translation — skip only if confidently English
+        # 3) Smart translation
         if self._is_likely_english(query):
             src_lang = "English"
             query_english = query
@@ -287,18 +298,28 @@ ABSOLUTE RULES:
         # 5) Detect question vs statement
         is_statement = llm_client.get_text_type(query_english)
 
-        # 6) Get scientific answer from ClimateGPT
-        # Statements get explicit TRUE/FALSE/PARTIALLY TRUE prompt
-        # Questions sent as-is for direct answer
-        scientific_answer, references = climategpt_client.get_scientific_answer(
-            query_english,
-            is_statement=is_statement,
+        # 6) Try ClimateGPT — fallback to GPT-4o-mini if offline
+        scientific_answer, references, is_backup = (
+            climategpt_client.get_scientific_answer(
+                query_english,
+                is_statement=is_statement,
+            )
         )
+
+        if is_backup:
+            # ClimateGPT is offline — use GPT-4o-mini backup
+            scientific_answer, references = llm_client.get_backup_answer(
+                query_english, is_statement
+            )
 
         # 7) Classify verdict — questions always ACCURATE (0)
         if not is_statement:
             verdict = ACCURATE
+        elif is_backup:
+            # Use direct classification when ClimateGPT is offline
+            verdict = self._classify_backup(query_english)
         else:
+            # Use ClimateGPT's answer to classify
             verdict = self._classify_claim(scientific_answer)
 
         # 8) Generate football-style answer
@@ -328,6 +349,7 @@ ABSOLUTE RULES:
             "llm_response": final_answer,
             "misinformation": verdict,
             "references": references,
+            "source": "backup" if is_backup else "climategpt",
         }
         # cache.set(cache_key, result, timeout=86400)
 
