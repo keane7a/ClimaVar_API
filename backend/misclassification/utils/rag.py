@@ -10,10 +10,6 @@ class LLMClient:
         self.temperature = temperature
 
     def invoke(self, prompt: str, system: str = None, temperature=None):
-        """
-        Call OpenAI and return the message content.
-        Supports optional system message for better instruction-following.
-        """
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -77,13 +73,37 @@ class LLMClient:
 
         return True
 
+    def get_backup_answer(self, query: str, is_statement: bool) -> tuple:
+        """
+        Fallback scientific answer using GPT-4o-mini when ClimateGPT is offline.
+        Returns a short explanation and a backup flag.
+        """
+        if is_statement:
+            system = (
+                "You are a climate science assistant with knowledge of IPCC reports "
+                "and scientific consensus. Give a brief, accurate answer in 2-3 sentences."
+            )
+            user = (
+                f"Is this statement accurate according to climate science?\n\n"
+                f'"{query}"\n\n'
+                f"State clearly if it is TRUE, FALSE, or PARTIALLY TRUE, "
+                f"then explain briefly."
+            )
+        else:
+            system = (
+                "You are a climate science assistant with knowledge of IPCC reports "
+                "and scientific consensus. Give a brief, accurate answer in 2-3 sentences."
+            )
+            user = f"Answer this climate question briefly:\n\n{query}"
+
+        answer = self.invoke(user, system=system, temperature=0.0)
+        return answer, []
+
 
 class ClimateGPTClient:
     """
     Client for the ClimateGPT API by Erasmus.AI.
-    OpenAI-compatible endpoint with climate-specific knowledge base.
-    Used to get scientific answers to ground the football-style verdict.
-    References removed — not shown in the interface.
+    Returns is_backup=True if ClimateGPT is unavailable.
     """
 
     def __init__(self, api_key: str):
@@ -94,17 +114,13 @@ class ClimateGPTClient:
         )
         self.model = "climategpt_8b_latest"
 
-    def get_scientific_answer(self, query: str, is_statement: bool = False) -> tuple:
+    def get_scientific_answer(
+        self, query: str, is_statement: bool = False
+    ) -> tuple:
         """
         Query ClimateGPT for a scientific answer.
-
-        For statements, instructs ClimateGPT to begin with a clear
-        TRUE, FALSE, or PARTIALLY TRUE verdict before elaborating.
-        This prevents academic hedging from confusing the classifier.
-
-        Returns:
-            answer (str): Full scientific answer from ClimateGPT
-            references (list): Always empty — references not shown in UI
+        Returns (answer, references, is_backup).
+        is_backup=True means ClimateGPT was unavailable.
         """
         try:
             if is_statement:
@@ -119,16 +135,13 @@ class ClimateGPTClient:
 
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": content,
-                    }
-                ],
+                messages=[{"role": "user", "content": content}],
                 extra_headers={"x-litellm-api-key": self.api_key},
+                timeout=15,
             )
             answer = response.choices[0].message.content.strip()
-            return answer, []
+            return answer, [], False  # is_backup=False
 
         except Exception as e:
-            return "Climate science indicates this topic requires careful analysis.", []
+            # ClimateGPT is unavailable — signal backup needed
+            return None, [], True  # is_backup=True
