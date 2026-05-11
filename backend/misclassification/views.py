@@ -15,10 +15,9 @@ from utils.docs_utils import (
 from permissions import isAdminAndReadListOnly
 
 from openai import OpenAI
-from misclassification.utils.rag import LLMClient, ClimateGPTClient
+from misclassification.utils.rag import LLMClient, ClimateGPTClient, SUPPORTED_LANGUAGES
 from misclassification.utils.prompts import *
 import os
-import re
 from django.core.cache import cache
 import hashlib
 
@@ -28,64 +27,79 @@ ACCURATE = 0
 MISINFORMATION = 1
 PARTIAL = 2
 
-# Init GPT-4o-mini — translation, climate check, football answer generation
+# Language display names for messages
+LANGUAGE_NAMES = {
+    "english": "English",
+    "portuguese": "Portuguese",
+    "spanish": "Spanish",
+}
+
+# Init GPT-4o-mini
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 llm_client = LLMClient(openai_client, model="gpt-4o-mini", temperature=0.2)
 
-# Init ClimateGPT — scientific answer retrieval
+# Init ClimateGPT
 climategpt_client = ClimateGPTClient(api_key=os.getenv("CLIMATEGPT_API_KEY"))
 
 
 class MisclassificationViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
 
-    def _is_likely_english(self, text):
-        if not text:
-            return True
-        non_english_chars = set('àáâãäåæçèéêëìíîïðñòóôõöùúûüýþÿãõç')
-        if any(char in non_english_chars for char in text.lower()):
-            return False
-        text_lower = text.lower().strip()
-        words = set(text_lower.split())
-        english_only_words = {
-            'the', 'this', 'that', 'these', 'those',
-            'have', 'has', 'been', 'being',
-            'their', 'there', 'they', 'them',
-            'because', 'which', 'would', 'could', 'should',
-            'warming', 'weather', 'rainfall', 'flooding',
-            'aren', 'isn', 'doesn', 'didn', 'wasn', 'weren',
-        }
-        if words & english_only_words:
-            return True
-        return False
-
     def _classify_claim(self, scientific_answer: str) -> int:
         """
-        Classify based on ClimateGPT's answer.
-        Reads TRUE/FALSE/PARTIALLY TRUE signal from first sentence.
+        Classify verdict by reading ClimateGPT's natural language patterns.
+        Works across English, Portuguese and Spanish without translation.
+
+        Looks for explicit FALSE/TRUE/PARTIAL signals in the first sentence.
         Falls back to GPT-4o-mini if signal is unclear.
         """
         first_sentence = scientific_answer.split('.')[0].strip().upper()
 
-        if any(word in first_sentence for word in [
-            'FALSE', 'INCORRECT', 'INACCURATE', 'NOT TRUE', 'WRONG',
-            'MISLEADING', 'NOT ACCURATE', 'NOT SUPPORTED',
-        ]):
+        # Explicit FALSE signals across EN/PT/ES
+        false_signals = [
+            'INCORRECT', 'MISLEADING', 'IS A MYTH', 'NO CREDIBLE EVIDENCE',
+            'NOT SUPPORTED', 'IS FALSE', 'ASSERTION IS', 'STATEMENT IS INCORRECT',
+            'THIS IS NOT', 'CLAIM IS FALSE', 'NOT TRUE', 'IS WRONG',
+            # Portuguese
+            'É INCORRETA', 'É INCORRETO', 'NÃO TÊM NADA', 'NÃO É VERDADE',
+            'AFIRMAÇÃO É FALSA', 'CRENÇA É INCORRETA',
+            # Spanish
+            'ES INCORRECTA', 'ES INCORRECTA', 'ES FALSA', 'NO ES CIERTO',
+            'LA AFIRMACIÓN ES', 'ES UN MITO',
+        ]
+
+        # Explicit TRUE signals across EN/PT/ES
+        true_signals = [
+            'SIGNIFICANT MILESTONE', 'UNPRECEDENTED', 'INDEED CONFIRMED',
+            'OVERWHELMING CONSENSUS', 'WELL DOCUMENTED', 'SCIENTIFIC CONSENSUS',
+            'IS ACCURATE', 'IS CORRECT', 'IS TRUE', 'HAS BEEN CONFIRMED',
+            # Portuguese
+            'CONSENSO CIENTÍFICO', 'É VERDADE', 'ESTÁ CORRETO', 'CONFIRMADO',
+            'TEM UMA FORTE RELAÇÃO',
+            # Spanish
+            'CONSENSO CIENTÍFICO', 'ES VERDAD', 'ESTÁ CONFIRMADO', 'ES CORRECTO',
+        ]
+
+        # Explicit PARTIAL signals
+        partial_signals = [
+            'PARTIALLY CORRECT', 'PARTIALLY TRUE', 'PARTIALLY ACCURATE',
+            'WHILE IT IS TRUE', 'WHILE SOME',
+            # Portuguese
+            'PARCIALMENTE', 'EMBORA SEJA VERDADE',
+            # Spanish
+            'PARCIALMENTE', 'AUNQUE ES VERDAD',
+        ]
+
+        if any(signal in first_sentence for signal in false_signals):
             return MISINFORMATION
 
-        if any(word in first_sentence for word in [
-            'PARTIALLY TRUE', 'PARTIALLY CORRECT', 'PARTLY TRUE',
-            'PARTIALLY ACCURATE', 'MIXED', 'NUANCED',
-        ]):
+        if any(signal in first_sentence for signal in partial_signals):
             return PARTIAL
 
-        if any(word in first_sentence for word in [
-            'TRUE', 'CORRECT', 'ACCURATE', 'SUPPORTED', 'CONFIRMED',
-            'YES', 'INDEED',
-        ]):
+        if any(signal in first_sentence for signal in true_signals):
             return ACCURATE
 
-        # Fallback classifier
+        # Fallback — ask GPT-4o-mini to read the signal
         system = (
             "You are a climate fact-checking assistant. "
             "Reply with exactly ONE digit: 0, 1, or 2. No other text."
@@ -94,7 +108,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
             f"Read the first sentence of this climate science response:\n\n"
             f'"{first_sentence}"\n\n'
             f"Does this indicate the original statement is:\n"
-            f"0 = TRUE and accurate\n"
+            f"0 = TRUE and accurate according to climate science\n"
             f"1 = FALSE or misinformation\n"
             f"2 = PARTIALLY TRUE but needs context\n\n"
             f"Reply with only 0, 1, or 2."
@@ -112,11 +126,9 @@ class MisclassificationViewSet(viewsets.ViewSet):
     def _classify_backup(self, query: str) -> int:
         """
         Classify directly using GPT-4o-mini when ClimateGPT is offline.
-        Uses its own knowledge of scientific consensus.
         """
         system = (
-            "You are a climate science fact-checker with expert knowledge "
-            "of IPCC reports and scientific consensus. "
+            "You are a climate science fact-checker. "
             "Reply with exactly ONE digit: 0, 1, or 2. No other text."
         )
         user = (
@@ -149,16 +161,28 @@ class MisclassificationViewSet(viewsets.ViewSet):
         original_query: str,
         scientific_answer: str,
         verdict: int,
+        language: str,
     ) -> str:
+        """
+        Generates a football-style ClimaVAR verdict using GPT-4o-mini.
+        Responds directly in the user's language — no back-translation needed.
+
+        verdict=0 (ACCURATE)       → GOAL! / PLAY ON! / VAR CONFIRMS! / FAIR PLAY!
+        verdict=1 (MISINFORMATION) → RED CARD! / OFFSIDE! / FOUL!
+        verdict=2 (PARTIAL)        → YELLOW CARD! only
+        """
+        lang_instruction = f"You MUST respond in {language}. The referee calls (GOAL!, RED CARD!, etc.) stay in English as they are international football terms."
+
         if verdict == MISINFORMATION:
-            system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
+            system = f"""You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
 
 ABSOLUTE RULES:
 - Your entire response must be ONE sentence, maximum 280 characters.
 - You MUST start with exactly ONE of these calls: RED CARD! or OFFSIDE! or FOUL!
 - Never use GOAL!, PLAY ON!, VAR CONFIRMS!, FAIR PLAY!, or YELLOW CARD! for false claims.
 - Never combine two calls. Pick ONE only.
-- No preamble. No explanation. Just the single sentence starting with the call."""
+- No preamble. No explanation. Just the single sentence starting with the call.
+- {lang_instruction}"""
 
             user = (
                 f'The user said: "{original_query}"\n\n'
@@ -166,11 +190,11 @@ ABSOLUTE RULES:
                 f"Scientific explanation:\n{scientific_answer}\n\n"
                 f"Write ONE sentence (max 280 chars) starting with "
                 f"RED CARD! or OFFSIDE! or FOUL! "
-                f"that refutes the claim using the evidence above."
+                f"that refutes the claim. Respond in {language}."
             )
 
         elif verdict == PARTIAL:
-            system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
+            system = f"""You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
 
 ABSOLUTE RULES:
 - Your entire response must be ONE sentence, maximum 280 characters.
@@ -178,27 +202,27 @@ ABSOLUTE RULES:
 - This is for claims that are partially true but oversimplified or missing crucial context.
 - Your tone should be cautionary — "not the full picture", "needs context", "take care".
 - Never use RED CARD!, OFFSIDE!, FOUL!, GOAL!, PLAY ON!, VAR CONFIRMS!, FAIR PLAY!
-- No preamble. Just the single sentence starting with YELLOW CARD!"""
+- No preamble. Just the single sentence starting with YELLOW CARD!
+- {lang_instruction}"""
 
             user = (
                 f'The user said: "{original_query}"\n\n'
-                f"A climate scientist found this is PARTIALLY TRUE but incomplete "
-                f"or oversimplified.\n\n"
+                f"A climate scientist found this is PARTIALLY TRUE but incomplete.\n\n"
                 f"Scientific explanation:\n{scientific_answer}\n\n"
                 f"Write ONE sentence (max 280 chars) starting with YELLOW CARD! "
-                f"that warns the user this needs more context, "
-                f"using the evidence above."
+                f"that warns the user this needs more context. Respond in {language}."
             )
 
         else:  # ACCURATE
-            system = """You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
+            system = f"""You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee.
 
 ABSOLUTE RULES:
 - Your entire response must be ONE sentence, maximum 280 characters.
 - You MUST start with exactly ONE of these calls: GOAL! or PLAY ON! or VAR CONFIRMS! or FAIR PLAY!
 - Never use RED CARD!, OFFSIDE!, FOUL!, YELLOW CARD! for accurate claims.
 - Never combine two calls together.
-- No preamble. Just the single sentence starting with the call."""
+- No preamble. Just the single sentence starting with the call.
+- {lang_instruction}"""
 
             user = (
                 f'The user said: "{original_query}"\n\n'
@@ -206,7 +230,7 @@ ABSOLUTE RULES:
                 f"Scientific explanation:\n{scientific_answer}\n\n"
                 f"Write ONE sentence (max 280 chars) starting with "
                 f"GOAL! or PLAY ON! or VAR CONFIRMS! or FAIR PLAY! "
-                f"that confirms the claim using the evidence above."
+                f"that confirms the claim. Respond in {language}."
             )
 
         return llm_client.invoke(user, system=system, temperature=0.0)
@@ -226,25 +250,24 @@ ABSOLUTE RULES:
     )
     def check_misclassification(self, request):
         """
-        ClimateGPT pipeline with backup:
+        ClimaVAR v3 pipeline:
 
-        1.  Cache check — DISABLED FOR TESTING
+        1.  Cache check — DISABLED, uncomment lines below to re-enable
         2.  Validate length
-        3.  Smart English detection
+        3.  Language validation — accept EN/PT/ES, reject others
         4.  Climate relevance check
-        5.  Detect question vs statement
-        6.  Try ClimateGPT — if offline, use GPT-4o-mini backup
-        7.  Classify verdict
-        8.  Generate football verdict
-        9.  Translate back if needed
-        10. Log
-        11. Cache — DISABLED FOR TESTING
+        5.  ClimateGPT scientific answer (original input, no translation)
+        6.  Classify verdict from natural language patterns
+        7.  Generate football verdict directly in user's language
+        8.  Log + return
         """
 
         query = request.data.get("text", "")
+        language = request.data.get("language", "english").lower().strip()
 
         # 1) Cache — DISABLED FOR TESTING
-        cache_key = f"climavar_query_{hashlib.md5(query.lower().encode()).hexdigest()}"
+        # Uncomment the 3 lines below to re-enable caching:
+        # cache_key = f"climavar_v3_{hashlib.md5((query + language).lower().encode()).hexdigest()}"
         # cached_result = cache.get(cache_key)
         # if cached_result:
         #     return Response(cached_result, status=status.HTTP_200_OK)
@@ -256,24 +279,22 @@ ABSOLUTE RULES:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 3) Smart translation
-        if self._is_likely_english(query):
-            src_lang = "English"
-            query_english = query
-        else:
-            src_lang, query_english = llm_client.translate_language(
-                query, "English"
+        # 3) Language validation
+        if language not in SUPPORTED_LANGUAGES:
+            return Response(
+                {
+                    "message": (
+                        f"Language '{language}' is not supported yet. "
+                        f"ClimaVAR currently supports: English, Portuguese and Spanish."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if not (query_english and src_lang):
-                return Response(
-                    {"message": "Unsupported language for translation."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
         # 4) Climate relevance check
         classify_claim = llm_client.invoke(
             PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace(
-                "{user_question}", query_english
+                "{user_question}", query
             ),
             temperature=0.0,
         )
@@ -287,70 +308,54 @@ ABSOLUTE RULES:
             return Response(
                 {
                     "message": (
-                        "Query does not contain climate-related topics or sufficient "
-                        "climate-related keywords. Please rephrase your query to focus "
-                        "on climate-related content."
+                        "Query does not contain climate-related topics. "
+                        "Please rephrase your query to focus on climate-related content."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 5) Detect question vs statement
-        is_statement = llm_client.get_text_type(query_english)
-
-        # 6) Try ClimateGPT — fallback to GPT-4o-mini if offline
-        scientific_answer, references, is_backup = (
-            climategpt_client.get_scientific_answer(
-                query_english,
-                is_statement=is_statement,
-            )
-        )
+        # 5) Get scientific answer from ClimateGPT
+        # Original input sent directly — no translation
+        scientific_answer, is_backup = climategpt_client.get_scientific_answer(query)
 
         if is_backup:
-            # ClimateGPT is offline — use GPT-4o-mini backup
-            scientific_answer, references = llm_client.get_backup_answer(
-                query_english, is_statement
-            )
+            # ClimateGPT offline — use GPT-4o-mini backup
+            scientific_answer = llm_client.get_backup_answer(query, language)
 
-        # 7) Classify verdict — questions always ACCURATE (0)
-        if not is_statement:
-            verdict = ACCURATE
-        elif is_backup:
-            # Use direct classification when ClimateGPT is offline
-            verdict = self._classify_backup(query_english)
+        # 6) Classify verdict
+        if is_backup:
+            verdict = self._classify_backup(query)
         else:
-            # Use ClimateGPT's answer to classify
             verdict = self._classify_claim(scientific_answer)
 
-        # 8) Generate football-style answer
+        # 7) Generate football-style answer directly in user's language
         llm_answer = self._build_football_answer(
-            original_query=query_english,
+            original_query=query,
             scientific_answer=scientific_answer,
             verdict=verdict,
+            language=language,
         )
 
-        # 9) Translate back if needed
-        if src_lang != "English":
-            final_answer = llm_client.translate_language(llm_answer, src_lang)[1]
-        else:
-            final_answer = llm_answer
-
-        # 10) Log
+        # 8) Log
         MisclassificationLog.objects.create(
             user=request.user,
-            user_input=request.data.get("text", ""),
-            llm_output=final_answer,
+            user_input=query,
+            llm_output=llm_answer,
             is_misinformation=verdict,
-            references="\n".join(references),
+            references="",
         )
 
-        # 11) Cache — DISABLED FOR TESTING
+        # Prepare result
         result = {
-            "llm_response": final_answer,
+            "llm_response": llm_answer,
             "misinformation": verdict,
-            "references": references,
+            "references": [],
             "source": "backup" if is_backup else "climategpt",
         }
+
+        # Cache — DISABLED FOR TESTING
+        # Uncomment the line below to re-enable caching:
         # cache.set(cache_key, result, timeout=86400)
 
         return Response(result, status=status.HTTP_200_OK)
