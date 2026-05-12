@@ -20,6 +20,7 @@ from misclassification.utils.prompts import *
 import os
 from django.core.cache import cache
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # Verdict constants
@@ -63,13 +64,8 @@ class MisclassificationViewSet(viewsets.ViewSet):
         ClimateGPT response using GPT-4o-mini.
 
         When ClimateGPT agrees with a claim (verdict=0), performs a second
-        sanity check to catch cases where ClimateGPT itself oversimplified
-        or missed important nuance (e.g. nuclear lifecycle emissions).
-
-        Returns:
-            0 = ACCURATE
-            1 = MISINFORMATION
-            2 = PARTIAL / needs context
+        sanity check — UNLESS the input is a question, in which case
+        the sanity check is skipped (questions are not oversimplified claims).
         """
         system = (
             "You are a climate fact-checking assistant. "
@@ -113,10 +109,9 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 initial_verdict = int(char)
                 break
 
-        # Second sanity check — only when initial verdict is ACCURATE (0)
-        # Adds ~1 second only for GOAL verdicts
-        # Catches cases where ClimateGPT agreed with an oversimplified claim
-        if initial_verdict == ACCURATE:
+        # Second sanity check — only for ACCURATE verdicts on non-questions
+        # Questions are skipped since they are not claims that can be oversimplified
+        if initial_verdict == ACCURATE and not llm_client.is_question(query):
             sanity_system = (
                 "You are a climate science expert. "
                 "Reply with exactly ONE digit: 0 or 2. No other text."
@@ -133,15 +128,11 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 f"'Greenhouse gases reached record levels in 2023' → 0\n"
                 f"'Sea levels are rising due to climate change' → 0\n"
                 f"'Arctic ice is melting faster than predicted' → 0\n"
-                f"'Nuclear energy produces no emissions' → 2 "
-                f"(has very low but non-zero lifecycle emissions)\n"
-                f"'Electric vehicles produce zero emissions' → 2 "
-                f"(zero tailpipe but not zero lifecycle)\n"
-                f"'Renewable energy is cheaper than fossil fuels everywhere' → 2 "
-                f"(true in many but not all contexts)\n"
+                f"'Nuclear energy produces no emissions' → 2\n"
+                f"'Electric vehicles produce zero emissions' → 2\n"
+                f"'Renewable energy is cheaper than fossil fuels everywhere' → 2\n"
                 f"'Nuclear energy should be the primary solution to climate change "
-                f"because it produces no emissions' → 2 "
-                f"(overstates nuclear role and misrepresents emissions)\n\n"
+                f"because it produces no emissions' → 2\n\n"
                 f"Reply with only 0 or 2."
             )
             sanity_result = llm_client.invoke(
@@ -168,7 +159,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
             f"0 = ACCURATE: Correct and fully supported by scientific consensus.\n"
             f"1 = MISINFORMATION: Fundamentally false, no significant truth in it.\n"
             f"2 = PARTIAL: Contains some truth but misleading conclusion or "
-            f"missing crucial context. Use when a true fact leads to a false conclusion.\n\n"
+            f"missing crucial context.\n\n"
             f"EXAMPLES:\n"
             f"'Greenhouse gas concentrations reached record levels in 2023' → 0\n"
             f"'Human activities are the primary cause of climate change' → 0\n"
@@ -199,11 +190,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
         """
         Generates a football-style ClimaVAR verdict using GPT-4o-mini.
         Responds directly in the user's language.
-        Referee calls are translated based on language:
-
-        ACCURATE      → GOAL! / GOL! / GOL!
-        MISINFORMATION → RED CARD! / CARTÃO VERMELHO! / TARJETA ROJA!
-        PARTIAL       → YELLOW CARD! / CARTÃO AMARELO! / TARJETA AMARILLA!
+        Referee calls translated per language.
         """
         calls = REFEREE_CALLS.get(language, REFEREE_CALLS["english"])
 
@@ -280,28 +267,27 @@ class MisclassificationViewSet(viewsets.ViewSet):
     )
     def check_misclassification(self, request):
         """
-        ClimaVAR v3 pipeline:
+        ClimaVAR v3 pipeline — optimized:
 
-        1.  Cache — DISABLED, uncomment lines to re-enable
+        1.  Cache check — re-enabled, 24h TTL
         2.  Validate length
         3.  Language validation — EN/PT/ES only
-        4.  Climate relevance check
-        5.  ClimateGPT scientific answer (original input, no translation)
-        6.  Classify verdict using full query vs full response
-            + sanity check for ACCURATE verdicts
-        7.  Generate football verdict in user's language with translated calls
-        8.  Log + return
+        4.  Climate relevance check + ClimateGPT — run IN PARALLEL
+            saving ~1s on every request
+        5.  Classify verdict (full response comparison + sanity check
+            for non-question ACCURATE verdicts)
+        6.  Generate football verdict in user's language
+        7.  Log + cache + return
         """
 
         query = request.data.get("text", "")
         language = request.data.get("language", "english").lower().strip()
 
-        # 1) Cache — DISABLED FOR TESTING
-        # To re-enable, uncomment these 3 lines:
-        # cache_key = f"climavar_v3_{hashlib.md5((query+language).lower().encode()).hexdigest()}"
-        # cached_result = cache.get(cache_key)
-        # if cached_result:
-        #     return Response(cached_result, status=status.HTTP_200_OK)
+        # 1) Cache check — RE-ENABLED
+        cache_key = f"climavar_v3_{hashlib.md5((query + language).lower().encode()).hexdigest()}"
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            return Response(cached_result, status=status.HTTP_200_OK)
 
         # 2) Validate length
         if not 10 < len(query) < 300:
@@ -322,20 +308,20 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 4) Climate relevance check
-        classify_claim = llm_client.invoke(
-            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace(
-                "{user_question}", query
-            ),
-            temperature=0.0,
-        )
-        classify_clean = classify_claim.strip().lower()
-        if (
-            "output: 0" in classify_clean
-            or classify_clean.endswith("\n0")
-            or classify_clean.endswith(" 0")
-            or classify_clean.strip() == "0"
-        ):
+        # 4) Run climate relevance check AND ClimateGPT IN PARALLEL
+        # Saves ~1s compared to running sequentially
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            relevance_future = executor.submit(
+                llm_client.is_climate_related, query
+            )
+            climategpt_future = executor.submit(
+                climategpt_client.get_scientific_answer, query
+            )
+
+            is_climate_related = relevance_future.result()
+            scientific_answer, is_backup = climategpt_future.result()
+
+        if not is_climate_related:
             return Response(
                 {
                     "message": (
@@ -346,21 +332,16 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 5) Get scientific answer from ClimateGPT
-        # Original input sent directly — no translation
-        scientific_answer, is_backup = climategpt_client.get_scientific_answer(query)
-
         if is_backup:
             scientific_answer = llm_client.get_backup_answer(query, language)
 
-        # 6) Classify verdict
-        # Includes sanity check for ACCURATE verdicts
+        # 5) Classify verdict
         if is_backup:
             verdict = self._classify_backup(query)
         else:
             verdict = self._classify_claim(query, scientific_answer)
 
-        # 7) Generate football answer in user's language with translated calls
+        # 6) Generate football answer in user's language
         llm_answer = self._build_football_answer(
             original_query=query,
             scientific_answer=scientific_answer,
@@ -368,7 +349,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
             language=language,
         )
 
-        # 8) Log
+        # 7) Log + cache + return
         MisclassificationLog.objects.create(
             user=request.user,
             user_input=query,
@@ -384,9 +365,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
             "source": "backup" if is_backup else "climategpt",
         }
 
-        # Cache — DISABLED FOR TESTING
-        # To re-enable, uncomment this line:
-        # cache.set(cache_key, result, timeout=86400)
+        cache.set(cache_key, result, timeout=86400)
 
         return Response(result, status=status.HTTP_200_OK)
 
