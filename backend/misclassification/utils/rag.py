@@ -14,10 +14,6 @@ class LLMClient:
         self.temperature = temperature
 
     def invoke(self, prompt: str, system: str = None, temperature=None):
-        """
-        Call OpenAI and return the message content.
-        Supports optional system message for better instruction-following.
-        """
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -42,10 +38,53 @@ class LLMClient:
         )
         user = (
             f"Evaluate this climate claim or question based on climate science:\n\n"
-            f'"{query}"\n\n'
+            f"\"{query}\"\n\n"
             f"Respond in {language}."
         )
         return self.invoke(user, system=system, temperature=0.0)
+
+    def is_climate_related(self, query: str) -> bool:
+        """
+        Check if the query is climate-related.
+        Returns True if climate-related, False otherwise.
+        """
+        result = self.invoke(
+            PROMPT_CLIMATE_TEXT_CLASSIFICATION.replace(
+                "{user_question}", query
+            ),
+            temperature=0.0,
+        )
+        classify_clean = result.strip().lower()
+        if (
+            "output: 0" in classify_clean
+            or classify_clean.endswith("\n0")
+            or classify_clean.endswith(" 0")
+            or classify_clean.strip() == "0"
+        ):
+            return False
+        return True
+
+    def is_question(self, query: str) -> bool:
+        """
+        Quick heuristic to detect if input is a question.
+        Questions rarely need the sanity check since they are
+        not claims that can be oversimplified.
+        """
+        text_lower = query.lower().strip()
+        q_starters = (
+            "what", "who", "where", "when", "why", "how",
+            "does", "is ", "are ", "do ", "can ", "will ",
+            "could ", "would ", "should ", "has ", "have ",
+            # Portuguese
+            "qual", "quais", "quando", "onde", "como", "por que",
+            "é ", "são ", "existe", "pode", "será",
+            # Spanish
+            "qué", "cuál", "cuándo", "dónde", "cómo", "por qué",
+            "es ", "son ", "existe", "puede", "será",
+        )
+        return text_lower.endswith("?") or any(
+            text_lower.startswith(w) for w in q_starters
+        )
 
 
 class ClimateGPTClient:
@@ -53,6 +92,7 @@ class ClimateGPTClient:
     Client for the ClimateGPT API by Erasmus.AI.
     Receives original user input directly — no translation.
     Returns is_backup=True if ClimateGPT is unavailable.
+    max_tokens=200 for faster responses while preserving verdict signal.
     """
 
     def __init__(self, api_key: str):
@@ -67,6 +107,8 @@ class ClimateGPTClient:
         """
         Query ClimateGPT with the original user input.
         No translation — ClimateGPT handles EN/PT/ES natively.
+        max_tokens=200 reduces latency while keeping enough context
+        for accurate classification.
 
         Returns:
             answer (str): Scientific answer from ClimateGPT
@@ -75,6 +117,7 @@ class ClimateGPTClient:
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
+                max_tokens=200,
                 messages=[{"role": "user", "content": query}],
                 extra_headers={"x-litellm-api-key": self.api_key},
                 timeout=15,
