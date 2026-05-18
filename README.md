@@ -29,26 +29,7 @@ Branches should be created for every 'Task' or 'Feature'. Branches can also be c
 4. After merging a pull request into master, please delete the branch to avoid clutter.
 
 ## Setup
-### Prerequisites
-1. Clone the repository.
-2. create ``.env`` to the root of your clined repository. Fill the following 'blank' with your own keys and properties. PostgreSQL (starts with 'PG') would most likely not be needed. 
-    ```
-    CARDS_API_KEY=
-    CARDS_BASE_URL="https://api.discourselab.ai/v1"
-    OPENAI_API_KEY=
-    CHROMA_API_KEY=
-    CHROMA_TENANT=
-    CHROMA_DATABASE=ClimaVAR
-    CLIMAVAR_TOKEN=ClimaVar2025
-    PGDATABASE="climaVar"
-    PGUSER=
-    PGPASSWORD=
-    PGHOST=
-    PGPORT=
-    APP_HOST_NAMES= ""
-    APP_DEVELOPMENT=True
-    APP_DEBUG=True
-    ```
+
 
 ### MacOS
 #### Back end
