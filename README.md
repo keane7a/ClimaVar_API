@@ -28,34 +28,27 @@ BibTeX:
       doi       = {10.5753/semish.2026.21813}
     }
 
-## 🏗️ Architecture
-ClimaVAR uses a two-model pipeline:
-- **ClimateGPT (Erasmus.AI)**: specialist LLM trained on 4.2B climate tokens, used for scientific answer retrieval and verdict signal
-- **GPT-4o-mini (OpenAI)**: used for climate relevance checking, verdict classification, football-style answer generation, and as fallback when ClimateGPT is offline
+## 🏗️ Overview
+ClimaVAR is integrated with ClimateGPT (Erasmus.AI), a specialist climate LLM, and uses general-purpose LLMs to deliver clear, football-style verdicts to the public.
 
 Supported languages: English, Portuguese, Spanish, Arabic.
 
-### Language handling
-- **English, Portuguese and Spanish**: the original text is sent directly to ClimateGPT and the answer is generated in the same language, with no translation step.
-- **Arabic**: the input is translated to English before ClimateGPT and the classifiers (ClimateGPT's Arabic support is not confirmed). The final answer is generated directly in Modern Standard Arabic from the original text. A final check translates the answer to Arabic if it comes back in another language.
-- If the text is written in Arabic script, the backend sets the language to Arabic automatically, even if the request sends a different `language` value.
-
-Referee calls per language:
+Verdicts:
 
 | Verdict | English | Portuguese | Spanish | Arabic |
 |---|---|---|---|---|
-| Accurate (0) | GOAL! | GOL! | GOL! | هدف! |
-| Misinformation (1) | RED CARD! | CARTÃO VERMELHO! | TARJETA ROJA! | بطاقة حمراء! |
-| Partial (2) | YELLOW CARD! | CARTÃO AMARELO! | TARJETA AMARILLA! | بطاقة صفراء! |
+| Accurate | GOAL! | GOL! | GOL! | هدف! |
+| Misinformation | RED CARD! | CARTÃO VERMELHO! | TARJETA ROJA! | بطاقة حمراء! |
+| Partial / needs context | YELLOW CARD! | CARTÃO AMARELO! | TARJETA AMARILLA! | بطاقة صفراء! |
 
 ## 👨‍💻 Branching
 
 | Branch | Description |
 |---|---|
-| `speed-optimization` | v1: RAG + ChromaDB + CARDS pipeline |
-| `climategpt-integration` | v2: ClimateGPT integration |
-| `climategpt-backup` | v2.1: ClimateGPT with GPT-4o-mini fallback |
-| `climavar-v3` | v3: Current production version (EN/PT/ES/AR) |
+| `speed-optimization` | v1 |
+| `climategpt-integration` | v2 |
+| `climategpt-backup` | v2.1 |
+| `climavar-v3` | v3: Current production version |
 
 Branch naming convention:
 
@@ -136,14 +129,7 @@ Request body:
 
 Accepted language values: "english", "portuguese", "spanish", "arabic"
 
-If "language" is omitted, defaults to "english". Text written in Arabic script is always processed as "arabic".
-
-Example (Arabic):
-
-    {
-        "text": "التغير المناخي ليس سببه النشاط البشري",
-        "language": "arabic"
-    }
+If "language" is omitted, defaults to "english".
 
 Response:
 
@@ -160,10 +146,10 @@ misinformation values:
 - 2 = partial / needs context
 
 source values:
-- "climategpt" = primary pipeline active
-- "backup" = GPT-4o-mini fallback (ClimateGPT temporarily offline)
+- "climategpt" = primary pipeline
+- "backup" = alternative pipeline
 
-Error messages (`message` field) are always returned in English. Frontends should translate them for the user's language.
+Error messages (`message` field) are returned in English. Frontends should translate them for the user's language.
 
 ## 🧪 Development notes
 * Please write API documentation and tests
