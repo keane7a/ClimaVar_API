@@ -99,17 +99,30 @@ LOGIN_EXAMPLES = [
 # Misclassification Documentations
 ###############
 class CheckMisclassificationRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(required=True)
+    text = serializers.CharField(
+        required=True,
+        help_text="Climate claim or question (10-300 characters).",
+    )
+    language = serializers.ChoiceField(
+        choices=["english", "portuguese", "spanish", "arabic"],
+        required=False,
+        default="english",
+        help_text="Language of the input and of the response. Defaults to english.",
+    )
 
 
 class CheckMisclassificationResponseSerializer(serializers.Serializer):
-    llm_response = serializers.CharField()
-    misinformation = serializers.BooleanField()
-    references = serializers.ListField()
-
-
-class CheckMisclassificationRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(required=True)
+    llm_response = serializers.CharField(
+        help_text="Football-style verdict in the requested language."
+    )
+    misinformation = serializers.IntegerField(
+        help_text="0 = accurate, 1 = misinformation, 2 = partial / needs context."
+    )
+    references = serializers.ListField(child=serializers.CharField())
+    source = serializers.ChoiceField(
+        choices=["climategpt", "backup"],
+        help_text="climategpt = primary pipeline, backup = alternative pipeline.",
+    )
 
 
 CHECK_MISCLASSIFICATION_REQUEST = CheckMisclassificationRequestSerializer
@@ -126,13 +139,15 @@ CHECK_MISCLASSIFICATION_RESPONSES = {
             ),
             OpenApiExample(
                 "Unsupported language",
-                value={"message": "Unsupported language for translation."},
+                value={
+                    "message": "Language 'french' is not supported yet. ClimaVAR currently supports: English, Portuguese, Spanish and Arabic."
+                },
                 response_only=True,
             ),
             OpenApiExample(
                 "Not climate related",
                 value={
-                    "message": "Query does not contain climate-related topics or sufficient climate-related keywords. Please rephrase your query to focus on climate-related content."
+                    "message": "Query does not contain climate-related topics. Please rephrase your query to focus on climate-related content."
                 },
                 response_only=True,
             ),
@@ -142,18 +157,32 @@ CHECK_MISCLASSIFICATION_RESPONSES = {
 
 CHECK_MISCLASSIFICATION_EXAMPLES = [
     OpenApiExample(
-        "Check misclassification request",
-        value={"text": "Climate change is a religion."},
+        "Request (English)",
+        value={"text": "Climate change is a religion.", "language": "english"},
         request_only=True,
     ),
     OpenApiExample(
-        "Successful check response",
+        "Request (Arabic)",
+        value={"text": "التغير المناخي ليس سببه النشاط البشري", "language": "arabic"},
+        request_only=True,
+    ),
+    OpenApiExample(
+        "Response (misinformation)",
         value={
-            "llm_response": "Offside! Claiming climate change is a religion is a total foul—it's backed by solid evidence, not just faith, and the science is clear, yet media often drops the ball by not linking extreme weather to climate change!\nReferences: Climate Change 2021: The Physical Science Basis, page number 2408 (2021) - https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_FullReport.pdf",
-            "misinformation": True,
-            "references": [
-                "Climate Change 2021: The Physical Science Basis, page number 2408 (2021) - https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_FullReport.pdf"
-            ],
+            "llm_response": "RED CARD! Climate change is not a belief system: it is backed by decades of evidence and the scientific consensus of the IPCC.",
+            "misinformation": 1,
+            "references": [],
+            "source": "climategpt",
+        },
+        response_only=True,
+    ),
+    OpenApiExample(
+        "Response (accurate)",
+        value={
+            "llm_response": "GOAL! Sea levels are indeed rising due to climate change, driven by melting ice and the thermal expansion of warming oceans.",
+            "misinformation": 0,
+            "references": [],
+            "source": "climategpt",
         },
         response_only=True,
     ),
