@@ -15,7 +15,13 @@ from utils.docs_utils import (
 from permissions import isAdminAndReadListOnly
 
 from openai import OpenAI
-from misclassification.utils.rag import LLMClient, ClimateGPTClient, SUPPORTED_LANGUAGES
+from misclassification.utils.rag import (
+    LLMClient,
+    ClimateGPTClient,
+    SUPPORTED_LANGUAGES,
+    is_arabic,
+    language_label,
+)
 from misclassification.utils.prompts import *
 import os
 from django.core.cache import cache
@@ -45,6 +51,11 @@ REFEREE_CALLS = {
         "misinformation": "TARJETA ROJA!",
         "partial": "TARJETA AMARILLA!",
     },
+    "arabic": {
+        "accurate": "هدف!",
+        "misinformation": "بطاقة حمراء!",
+        "partial": "بطاقة صفراء!",
+    },
 }
 
 # Init GPT-4o-mini
@@ -64,7 +75,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
         ClimateGPT response using GPT-4o-mini.
 
         When ClimateGPT agrees with a claim (verdict=0), performs a second
-        sanity check — UNLESS the input is a question, in which case
+        sanity check, UNLESS the input is a question, in which case
         the sanity check is skipped (questions are not oversimplified claims).
         """
         system = (
@@ -109,7 +120,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 initial_verdict = int(char)
                 break
 
-        # Second sanity check — only for ACCURATE verdicts on non-questions
+        # Second sanity check: only for ACCURATE verdicts on non-questions
         # Questions are skipped since they are not claims that can be oversimplified
         if initial_verdict == ACCURATE and not llm_client.is_question(query):
             sanity_system = (
@@ -120,8 +131,8 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 f"Is this climate claim fully accurate, or does it oversimplify, "
                 f"exaggerate, or omit crucial context that would change its meaning?\n\n"
                 f"Claim: \"{query}\"\n\n"
-                f"0 = Fully accurate — no important caveats or missing context\n"
-                f"2 = Oversimplified or missing crucial context — partially true "
+                f"0 = Fully accurate, no important caveats or missing context\n"
+                f"2 = Oversimplified or missing crucial context: partially true "
                 f"but would give someone a misleading impression\n\n"
                 f"EXAMPLES:\n"
                 f"'Human activities are the primary cause of climate change' → 0\n"
@@ -194,11 +205,14 @@ class MisclassificationViewSet(viewsets.ViewSet):
         """
         calls = REFEREE_CALLS.get(language, REFEREE_CALLS["english"])
 
+        # Name used in prompts (Arabic becomes "Modern Standard Arabic")
+        lang = language_label(language)
+
         if verdict == MISINFORMATION:
             call = calls["misinformation"]
             system = (
                 f"You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee. "
-                f"You MUST respond entirely in {language}. "
+                f"You MUST respond entirely in {lang}. "
                 f"Your entire response must be ONE sentence, maximum 280 characters. "
                 f"You MUST start with exactly: {call} "
                 f"Never use any other call. No preamble. "
@@ -209,14 +223,14 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 f"A climate scientist found this is FALSE or MISLEADING.\n\n"
                 f"Scientific explanation:\n{scientific_answer}\n\n"
                 f"Write ONE sentence (max 280 chars) starting with {call} "
-                f"that refutes the claim. You MUST respond in {language}."
+                f"that refutes the claim. You MUST respond in {lang}."
             )
 
         elif verdict == PARTIAL:
             call = calls["partial"]
             system = (
                 f"You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee. "
-                f"You MUST respond entirely in {language}. "
+                f"You MUST respond entirely in {lang}. "
                 f"Your entire response must be ONE sentence, maximum 280 characters. "
                 f"You MUST start with exactly: {call} "
                 f"This is for claims that are partially true but misleading or missing crucial context. "
@@ -229,14 +243,14 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 f"A climate scientist found this is PARTIALLY TRUE but incomplete or misleading.\n\n"
                 f"Scientific explanation:\n{scientific_answer}\n\n"
                 f"Write ONE sentence (max 280 chars) starting with {call} "
-                f"warning the user this needs more context. You MUST respond in {language}."
+                f"warning the user this needs more context. You MUST respond in {lang}."
             )
 
         else:  # ACCURATE
             call = calls["accurate"]
             system = (
                 f"You are ClimaVAR, a climate fact-checker that speaks like a football VAR referee. "
-                f"You MUST respond entirely in {language}. "
+                f"You MUST respond entirely in {lang}. "
                 f"Your entire response must be ONE sentence, maximum 280 characters. "
                 f"You MUST start with exactly: {call} "
                 f"Never use any other call. No preamble. "
@@ -247,7 +261,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 f"A climate scientist confirmed this is ACCURATE.\n\n"
                 f"Scientific explanation:\n{scientific_answer}\n\n"
                 f"Write ONE sentence (max 280 chars) starting with {call} "
-                f"that confirms the claim. You MUST respond in {language}."
+                f"that confirms the claim. You MUST respond in {lang}."
             )
 
         return llm_client.invoke(user, system=system, temperature=0.0)
@@ -267,23 +281,30 @@ class MisclassificationViewSet(viewsets.ViewSet):
     )
     def check_misclassification(self, request):
         """
-        ClimaVAR v3 pipeline — optimized:
+        ClimaVAR v3 pipeline (optimized, with Arabic support):
 
-        1.  Cache check — re-enabled, 24h TTL
+        1.  Cache check (24h TTL)
         2.  Validate length
-        3.  Language validation — EN/PT/ES only
-        4.  Climate relevance check + ClimateGPT — run IN PARALLEL
-            saving ~1s on every request
+        3.  Language validation (EN/PT/ES/AR)
+            Arabic script in the text always sets language = arabic
+        3b. Arabic only: translate input to English for ClimateGPT
+            and classifiers
+        4.  Climate relevance check + ClimateGPT, run IN PARALLEL
         5.  Classify verdict (full response comparison + sanity check
             for non-question ACCURATE verdicts)
         6.  Generate football verdict in user's language
+        6b. Final language check (Arabic)
         7.  Log + cache + return
         """
 
         query = request.data.get("text", "")
         language = request.data.get("language", "english").lower().strip()
 
-        # 1) Cache check — RE-ENABLED
+        # Arabic script always means Arabic, whatever the frontend sent
+        if is_arabic(query):
+            language = "arabic"
+
+        # 1) Cache check
         cache_key = f"climavar_v3_{hashlib.md5((query + language).lower().encode()).hexdigest()}"
         cached_result = cache.get(cache_key)
         if cached_result:
@@ -302,20 +323,26 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 {
                     "message": (
                         f"Language '{language}' is not supported yet. "
-                        f"ClimaVAR currently supports: English, Portuguese and Spanish."
+                        f"ClimaVAR currently supports: English, Portuguese, Spanish and Arabic."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # 3b) Arabic only: English version for ClimateGPT and classifiers.
+        # The final answer is still generated in Arabic.
+        if language == "arabic":
+            query_for_model = llm_client.translate_to_english(query)
+        else:
+            query_for_model = query
+
         # 4) Run climate relevance check AND ClimateGPT IN PARALLEL
-        # Saves ~1s compared to running sequentially
         with ThreadPoolExecutor(max_workers=2) as executor:
             relevance_future = executor.submit(
-                llm_client.is_climate_related, query
+                llm_client.is_climate_related, query_for_model
             )
             climategpt_future = executor.submit(
-                climategpt_client.get_scientific_answer, query
+                climategpt_client.get_scientific_answer, query_for_model
             )
 
             is_climate_related = relevance_future.result()
@@ -333,13 +360,14 @@ class MisclassificationViewSet(viewsets.ViewSet):
             )
 
         if is_backup:
+            # Backup (GPT-4o-mini) receives the original text and handles Arabic
             scientific_answer = llm_client.get_backup_answer(query, language)
 
         # 5) Classify verdict
         if is_backup:
-            verdict = self._classify_backup(query)
+            verdict = self._classify_backup(query_for_model)
         else:
-            verdict = self._classify_claim(query, scientific_answer)
+            verdict = self._classify_claim(query_for_model, scientific_answer)
 
         # 6) Generate football answer in user's language
         llm_answer = self._build_football_answer(
@@ -348,6 +376,9 @@ class MisclassificationViewSet(viewsets.ViewSet):
             verdict=verdict,
             language=language,
         )
+
+        # 6b) Final language check: translates to Arabic only if needed
+        llm_answer = llm_client.ensure_language(llm_answer, language)
 
         # 7) Log + cache + return
         MisclassificationLog.objects.create(
