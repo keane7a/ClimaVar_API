@@ -1,27 +1,61 @@
 # 👩‍🏫 ClimaVAR API
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![DOI](https://img.shields.io/badge/DOI-10.5753%2Fsemish.2026.21813-blue)](https://doi.org/10.5753/semish.2026.21813)
 
 ## 📖 About
-ClimaVAR is an AI-powered tool launching ahead of COP30 that helps anyone spot and understand climate misinformation. Like VAR in football helps referees review decisions, ClimaVAR reviews climate claims — giving communities the tools to fight back against false narratives that delay action.
+ClimaVAR is an AI-powered tool launching ahead of COP30 that helps anyone spot and understand climate misinformation. Like VAR in football helps referees review decisions, ClimaVAR reviews climate claims, giving communities the tools to fight back against false narratives that delay action.
 
 **Helpful links**:
 * [ClimaVAR website](https://climavar.com/)
+* [Paper (SEMISH 2026)](https://doi.org/10.5753/semish.2026.21813)
+
+## 📄 Publication
+If you use ClimaVAR in your work, please cite:
+
+OLIVEIRA JR., Marcos A. de; WHITEMAN, Gail; NUGROHO, Nectarios K.; SIWACH, Ashish; CAVALHEIRO, Gerson G. H. **Red Cards for Climate Myths: introducing ClimaVAR, an AI-based Tool for Climate Disinformation Detection**. In: SEMINÁRIO INTEGRADO DE SOFTWARE E HARDWARE (SEMISH), 53., 2026, Gramado/RS. Anais [...]. Porto Alegre: Sociedade Brasileira de Computação, 2026. p. 578-589. ISSN 2595-6205. DOI: https://doi.org/10.5753/semish.2026.21813
+
+BibTeX:
+
+    @inproceedings{oliveirajr2026climavar,
+      author    = {Oliveira Jr., Marcos A. de and Whiteman, Gail and Nugroho, Nectarios K. and Siwach, Ashish and Cavalheiro, Gerson G. H.},
+      title     = {Red Cards for Climate Myths: introducing ClimaVAR, an AI-based Tool for Climate Disinformation Detection},
+      booktitle = {Anais do 53º Seminário Integrado de Software e Hardware (SEMISH)},
+      address   = {Gramado/RS},
+      publisher = {Sociedade Brasileira de Computação},
+      pages     = {578--589},
+      year      = {2026},
+      issn      = {2595-6205},
+      doi       = {10.5753/semish.2026.21813}
+    }
 
 ## 🏗️ Architecture
 ClimaVAR uses a two-model pipeline:
-- **ClimateGPT (Erasmus.AI)** — specialist LLM trained on 4.2B climate tokens, used for scientific answer retrieval and verdict signal
-- **GPT-4o-mini (OpenAI)** — used for climate relevance checking, verdict classification, and football-style answer generation
+- **ClimateGPT (Erasmus.AI)**: specialist LLM trained on 4.2B climate tokens, used for scientific answer retrieval and verdict signal
+- **GPT-4o-mini (OpenAI)**: used for climate relevance checking, verdict classification, football-style answer generation, and as fallback when ClimateGPT is offline
 
-Supported languages: English, Portuguese, Spanish.
+Supported languages: English, Portuguese, Spanish, Arabic.
+
+### Language handling
+- **English, Portuguese and Spanish**: the original text is sent directly to ClimateGPT and the answer is generated in the same language, with no translation step.
+- **Arabic**: the input is translated to English before ClimateGPT and the classifiers (ClimateGPT's Arabic support is not confirmed). The final answer is generated directly in Modern Standard Arabic from the original text. A final check translates the answer to Arabic if it comes back in another language.
+- If the text is written in Arabic script, the backend sets the language to Arabic automatically, even if the request sends a different `language` value.
+
+Referee calls per language:
+
+| Verdict | English | Portuguese | Spanish | Arabic |
+|---|---|---|---|---|
+| Accurate (0) | GOAL! | GOL! | GOL! | هدف! |
+| Misinformation (1) | RED CARD! | CARTÃO VERMELHO! | TARJETA ROJA! | بطاقة حمراء! |
+| Partial (2) | YELLOW CARD! | CARTÃO AMARELO! | TARJETA AMARILLA! | بطاقة صفراء! |
 
 ## 👨‍💻 Branching
 
 | Branch | Description |
 |---|---|
-| `speed-optimization` | v1 — RAG + ChromaDB + CARDS pipeline |
-| `climategpt-integration` | v2 — ClimateGPT integration |
-| `climategpt-backup` | v2.1 — ClimateGPT with GPT-4o-mini fallback |
-| `climavar-v3` | v3 — Current production version |
+| `speed-optimization` | v1: RAG + ChromaDB + CARDS pipeline |
+| `climategpt-integration` | v2: ClimateGPT integration |
+| `climategpt-backup` | v2.1: ClimateGPT with GPT-4o-mini fallback |
+| `climavar-v3` | v3: Current production version (EN/PT/ES/AR) |
 
 Branch naming convention:
 
@@ -34,11 +68,11 @@ Branch naming convention:
 ### Prerequisites
 1. Clone the repository
 2. Create a `.env` file in `/backend/` using the template below
-3. Fill in your own API keys — never commit real values
+3. Fill in your own API keys (never commit real values)
 
 ### Environment variables
 
-Create a `.env` file in `/backend/` with the following keys. All values must be blank — fill in your own:
+Create a `.env` file in `/backend/` with the following keys. All values must be blank (fill in your own):
 
     OPENAI_API_KEY=
     CLIMATEGPT_API_KEY=
@@ -54,7 +88,7 @@ Create a `.env` file in `/backend/` with the following keys. All values must be 
 
 Never commit real API keys or tokens. All sensitive values must be set as environment variables in Railway (production) or in your local .env file (development). The .env file is listed in .gitignore and must never be pushed to GitHub.
 
-### MacOS — Backend setup
+### MacOS: Backend setup
 1. Clone the repository and navigate to the root
 2. Run `cd backend`
 3. Run `python3 -m venv .venv`
@@ -62,10 +96,10 @@ Never commit real API keys or tokens. All sensitive values must be set as enviro
 5. Run `export APP_DEVELOPMENT=True`
 6. Run `pip install -r requirements.txt`
 7. Run `python3 manage.py migrate`
-8. Run `python3 manage.py createsuperuser` — create your admin account
+8. Run `python3 manage.py createsuperuser` (create your admin account)
 9. Run `python3 manage.py runserver`
 
-### Windows — Backend setup
+### Windows: Backend setup
 1. Clone the repository and navigate to the root
 2. Run `cd backend`
 3. Run `python -m venv .venv`
@@ -100,9 +134,16 @@ Request body:
         "language": "english"
     }
 
-Accepted language values: "english", "portuguese", "spanish"
+Accepted language values: "english", "portuguese", "spanish", "arabic"
 
-If "language" is omitted, defaults to "english".
+If "language" is omitted, defaults to "english". Text written in Arabic script is always processed as "arabic".
+
+Example (Arabic):
+
+    {
+        "text": "التغير المناخي ليس سببه النشاط البشري",
+        "language": "arabic"
+    }
 
 Response:
 
@@ -122,8 +163,10 @@ source values:
 - "climategpt" = primary pipeline active
 - "backup" = GPT-4o-mini fallback (ClimateGPT temporarily offline)
 
+Error messages (`message` field) are always returned in English. Frontends should translate them for the user's language.
+
 ## 🧪 Development notes
 * Please write API documentation and tests
-* Follow best practices — reusable, modular, testable code
+* Follow best practices: reusable, modular, testable code
 * Run `black` before pushing
 * Use `127.0.0.1` not `localhost` for local development
