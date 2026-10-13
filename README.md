@@ -12,7 +12,7 @@ ClimaVAR is an AI-powered tool launching ahead of COP30 that helps anyone spot a
 ## 📄 Publication
 If you use ClimaVAR in your work, please cite:
 
-OLIVEIRA JR., Marcos A. de; WHITEMAN, Gail; NUGROHO, Nectarios K.; SIWACH, Ashish; CAVALHEIRO, Gerson G. H. **Red Cards for Climate Myths: introducing ClimaVAR, an AI-based Tool for Climate Disinformation Detection**. In: SEMINÁRIO INTEGRADO DE SOFTWARE E HARDWARE (SEMISH), 53., 2026, Gramado/RS. Anais [...]. Porto Alegre: Sociedade Brasileira de Computação, 2026. p. 578-589. ISSN 2595-6205. DOI: https://doi.org/10.5753/semish.2026.21813
+OLIVEIRA JR., Marcos A. de; WHITEMAN, Gail; NUGROHO, Nectarios K.; SIWACH, Ashish; CAVALHEIRO, Gerson G. H. **Red Cards for Climate Myths: introducing ClimaVAR, an AI-based Tool for Climate Disinformation Detection**. In: SEMINÁRIO INTEGRADO DE SOFTWARE E HARDWARE (SEMISH), 53., 2026, Gramado/RS. Anais [...] . Porto Alegre: Sociedade Brasileira de Computação, 2026. p. 578-589. ISSN 2595-6205. DOI: https://doi.org/10.5753/semish.2026.21813
 
 BibTeX:
 
