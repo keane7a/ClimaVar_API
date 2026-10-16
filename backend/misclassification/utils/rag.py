@@ -190,4 +190,5 @@ class ClimateGPTClient:
             return answer, False
 
         except Exception as e:
+            print(f"[ClimateGPT ERROR] {type(e).__name__}: {e}", flush=True)
             return None, True
