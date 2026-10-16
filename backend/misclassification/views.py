@@ -69,6 +69,30 @@ climategpt_client = ClimateGPTClient(api_key=os.getenv("CLIMATEGPT_API_KEY"))
 class MisclassificationViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
 
+    def _detect_language(self, query: str):
+        """
+        Detect the language the user typed the claim in.
+        The answer must follow the INPUT language, not the interface language.
+        Returns one of SUPPORTED_LANGUAGES, or None if unknown/unsupported.
+        """
+        if is_arabic(query):
+            return "arabic"
+        system = (
+            "Identify the language of the user's text. "
+            "Reply with exactly one word: english, portuguese, spanish, "
+            "arabic, or other. No other text."
+        )
+        try:
+            result = llm_client.invoke(query, system=system, temperature=0.0)
+            result = result.strip().lower()
+        except Exception as e:
+            print(f"[LANG DETECT ERROR] {type(e).__name__}: {e}", flush=True)
+            return None
+        for lang in SUPPORTED_LANGUAGES:
+            if lang in result:
+                return lang
+        return None
+
     def _classify_claim(self, query: str, scientific_answer: str) -> int:
         """
         Classify verdict by comparing the original query against the full
@@ -304,8 +328,9 @@ class MisclassificationViewSet(viewsets.ViewSet):
 
         1.  Cache check (24h TTL)
         2.  Validate length
-        3.  Language validation (EN/PT/ES/AR)
-            Arabic script in the text always sets language = arabic
+        3.  Language: detected from the INPUT text (EN/PT/ES/AR), run in
+            parallel with step 4. The interface language sent by the
+            client is only a fallback when detection fails.
         3b. Original text (Arabic included) is sent to ClimateGPT
             and classifiers, with no translation
         4.  Climate relevance check + ClimateGPT, run IN PARALLEL
@@ -317,14 +342,14 @@ class MisclassificationViewSet(viewsets.ViewSet):
         """
 
         query = request.data.get("text", "")
-        language = request.data.get("language", "english").lower().strip()
-
-        # Arabic script always means Arabic, whatever the frontend sent
-        if is_arabic(query):
-            language = "arabic"
+        # Language sent by the client (interface language). Used only as a
+        # fallback when the input language cannot be detected.
+        requested_language = (
+            request.data.get("language", "english") or "english"
+        ).lower().strip()
 
         # 1) Cache check
-        cache_key = f"climavar_v3_{hashlib.md5((query + language).lower().encode()).hexdigest()}"
+        cache_key = f"climavar_v3_{hashlib.md5((query + requested_language).lower().encode()).hexdigest()}"
         cached_result = cache.get(cache_key)
         if cached_result:
             return Response(cached_result, status=status.HTTP_200_OK)
@@ -336,7 +361,38 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 3) Language validation
+        # 3b) All languages (Arabic included) are sent to ClimateGPT and the
+        # classifiers in the original text. The new ClimateGPT model
+        # (climategpt4-moe36-int4) handles Arabic directly, so the previous
+        # Arabic-to-English translation step was removed.
+        query_for_model = query
+
+        # 4) Run language detection, climate relevance check AND ClimateGPT
+        # IN PARALLEL
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            language_future = executor.submit(self._detect_language, query)
+            relevance_future = executor.submit(
+                llm_client.is_climate_related, query_for_model
+            )
+            climategpt_future = executor.submit(
+                climategpt_client.get_scientific_answer, query_for_model
+            )
+
+            detected_language = language_future.result()
+            is_climate_related = relevance_future.result()
+            scientific_answer, is_backup = climategpt_future.result()
+
+        # 3) Language decision: the answer follows the INPUT language.
+        # The interface language is only a fallback.
+        language = detected_language or requested_language
+
+        # TEMPORARY DEBUG LOG: language decision
+        print(
+            f"[LANG DEBUG] detected={detected_language} "
+            f"requested={requested_language} used={language}",
+            flush=True,
+        )
+
         if language not in SUPPORTED_LANGUAGES:
             return Response(
                 {
@@ -347,24 +403,6 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        # 3b) All languages (Arabic included) are sent to ClimateGPT and the
-        # classifiers in the original text. The new ClimateGPT model
-        # (climategpt4-moe36-int4) handles Arabic directly, so the previous
-        # Arabic-to-English translation step was removed.
-        query_for_model = query
-
-        # 4) Run climate relevance check AND ClimateGPT IN PARALLEL
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            relevance_future = executor.submit(
-                llm_client.is_climate_related, query_for_model
-            )
-            climategpt_future = executor.submit(
-                climategpt_client.get_scientific_answer, query_for_model
-            )
-
-            is_climate_related = relevance_future.result()
-            scientific_answer, is_backup = climategpt_future.result()
 
         if not is_climate_related:
             return Response(
