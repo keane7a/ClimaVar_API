@@ -186,8 +186,30 @@ class ClimateGPTClient:
                 extra_headers={"x-litellm-api-key": self.api_key},
                 timeout=15,
             )
-            answer = response.choices[0].message.content.strip()
-            return answer, False
+            choice = response.choices[0]
+            message = choice.message
+
+            # The new model (climategpt4-moe36-int4) is a reasoning model.
+            # With max_tokens=200 it usually returns the scientific text in
+            # "reasoning_content" and leaves "content" empty, so we use
+            # "content" when present and "reasoning_content" otherwise.
+            extra = getattr(message, "model_extra", None) or {}
+            answer = (
+                message.content
+                or getattr(message, "reasoning_content", None)
+                or extra.get("reasoning_content")
+                or extra.get("reasoning")
+            )
+
+            if not answer or not answer.strip():
+                print(
+                    f"[ClimateGPT EMPTY] finish_reason={choice.finish_reason} "
+                    f"message={message}",
+                    flush=True,
+                )
+                return None, True
+
+            return answer.strip(), False
 
         except Exception as e:
             print(f"[ClimateGPT ERROR] {type(e).__name__}: {e}", flush=True)
