@@ -163,9 +163,9 @@ class ClimateGPTClient:
         self.api_key = api_key
         self.client = OpenAI(
             api_key=api_key,
-            base_url="https://models.erasmus.ai/v1",
+            base_url="https://models.climategpt.app/v1",
         )
-        self.model = "climategpt_8b_latest"
+        self.model = "climategpt4-moe36-int4"
 
     def get_scientific_answer(self, query: str) -> tuple:
         """
