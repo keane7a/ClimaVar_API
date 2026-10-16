@@ -120,6 +120,13 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 initial_verdict = int(char)
                 break
 
+        # TEMPORARY DEBUG LOG: what ClimateGPT said and the first verdict
+        print(
+            f"[VERDICT DEBUG] climategpt_answer={scientific_answer[:400]!r}",
+            flush=True,
+        )
+        print(f"[VERDICT DEBUG] initial_verdict={initial_verdict}", flush=True)
+
         # Second sanity check: only for ACCURATE verdicts on non-questions
         # Questions are skipped since they are not claims that can be oversimplified
         if initial_verdict == ACCURATE and not llm_client.is_question(query):
@@ -149,6 +156,9 @@ class MisclassificationViewSet(viewsets.ViewSet):
             sanity_result = llm_client.invoke(
                 sanity_user, system=sanity_system, temperature=0.0
             ).strip()
+
+            # TEMPORARY DEBUG LOG: sanity check result
+            print(f"[VERDICT DEBUG] sanity_result={sanity_result!r}", flush=True)
 
             for char in sanity_result:
                 if char in ("0", "2"):
