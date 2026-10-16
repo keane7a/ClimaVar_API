@@ -306,8 +306,8 @@ class MisclassificationViewSet(viewsets.ViewSet):
         2.  Validate length
         3.  Language validation (EN/PT/ES/AR)
             Arabic script in the text always sets language = arabic
-        3b. Arabic only: translate input to English for ClimateGPT
-            and classifiers
+        3b. Original text (Arabic included) is sent to ClimateGPT
+            and classifiers, with no translation
         4.  Climate relevance check + ClimateGPT, run IN PARALLEL
         5.  Classify verdict (full response comparison + sanity check
             for non-question ACCURATE verdicts)
@@ -348,12 +348,11 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 3b) Arabic only: English version for ClimateGPT and classifiers.
-        # The final answer is still generated in Arabic.
-        if language == "arabic":
-            query_for_model = llm_client.translate_to_english(query)
-        else:
-            query_for_model = query
+        # 3b) All languages (Arabic included) are sent to ClimateGPT and the
+        # classifiers in the original text. The new ClimateGPT model
+        # (climategpt4-moe36-int4) handles Arabic directly, so the previous
+        # Arabic-to-English translation step was removed.
+        query_for_model = query
 
         # 4) Run climate relevance check AND ClimateGPT IN PARALLEL
         with ThreadPoolExecutor(max_workers=2) as executor:
