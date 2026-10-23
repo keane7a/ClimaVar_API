@@ -5,7 +5,7 @@ import re
 
 
 # Supported languages
-SUPPORTED_LANGUAGES = ["english", "portuguese", "spanish", "arabic"]
+SUPPORTED_LANGUAGES = ["english", "portuguese", "spanish", "arabic", "turkish"]
 
 # Arabic script (basic, supplement and extended-A blocks)
 ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
@@ -142,10 +142,18 @@ class LLMClient:
             "es ", "son ", "existe", "puede", "será",
             # Arabic
             "هل", "ما ", "ماذا", "لماذا", "كيف", "متى", "أين", "أي ",
+            # Turkish
+            "ne ", "neden", "niçin", "niye", "nasıl", "kim", "hangi",
+            "nerede", "ne zaman", "kaç",
         )
+        # Turkish question particles (mı, mi, mu, mü) as the last word
+        tr_particles = ("mı", "mi", "mu", "mü", "mıdır", "midir", "mudur", "müdür")
+        words = text_lower.rstrip("?؟.! ").split()
+        ends_with_tr_particle = bool(words) and words[-1] in tr_particles
         return (
             text_lower.endswith("?")
             or text_lower.endswith("؟")  # Arabic question mark
+            or ends_with_tr_particle
             or any(text_lower.startswith(w) for w in q_starters)
         )
 
