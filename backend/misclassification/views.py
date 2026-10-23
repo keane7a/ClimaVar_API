@@ -56,6 +56,11 @@ REFEREE_CALLS = {
         "misinformation": "بطاقة حمراء!",
         "partial": "بطاقة صفراء!",
     },
+    "turkish": {
+        "accurate": "GOL!",
+        "misinformation": "KIRMIZI KART!",
+        "partial": "SARI KART!",
+    },
 }
 
 # Init GPT-4o-mini
@@ -80,7 +85,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
         system = (
             "Identify the language of the user's text. "
             "Reply with exactly one word: english, portuguese, spanish, "
-            "arabic, or other. No other text."
+            "arabic, turkish, or other. No other text."
         )
         try:
             result = llm_client.invoke(query, system=system, temperature=0.0)
@@ -328,7 +333,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
 
         1.  Cache check (24h TTL)
         2.  Validate length
-        3.  Language: detected from the INPUT text (EN/PT/ES/AR), run in
+        3.  Language: detected from the INPUT text (EN/PT/ES/AR/TR), run in
             parallel with step 4. The interface language sent by the
             client is only a fallback when detection fails.
         3b. Original text (Arabic included) is sent to ClimateGPT
@@ -398,7 +403,7 @@ class MisclassificationViewSet(viewsets.ViewSet):
                 {
                     "message": (
                         f"Language '{language}' is not supported yet. "
-                        f"ClimaVAR currently supports: English, Portuguese, Spanish and Arabic."
+                        f"ClimaVAR currently supports: English, Portuguese, Spanish, Arabic and Turkish."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
